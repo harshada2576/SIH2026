@@ -1,27 +1,51 @@
 # Rules.md — Guardrails for AI-Assisted Building
+### SIH26184 — Predictive Cash Egress Interception
+**Status: LOCKED. Paste the relevant section into your AI tool's first message before you start prompting.**
 
-Everyone is using AI tools to build their piece. These rules exist so 6 people's AI sessions don't each reinvent the stack differently. When prompting your AI tool, paste the relevant section of `Architecture.md` first so it builds to the contract, not to whatever it defaults to.
+---
 
-## Stack rules
-- **Python only.** No mixing in Node/Java/Go for any workstream piece, even if your AI suggests it's "better for streaming" — consistency across 3 pairs matters more than marginal tech fit this week.
-- **Stick to the libraries named in Architecture.md**: `kafka-python`/`confluent-kafka`, `networkx`, `FastAPI`, Leaflet.js via CDN. If your AI tool suggests adding a new major dependency (a different graph DB, a different web framework, a message queue alternative), stop and ask the group first — don't just accept it because the AI suggested it.
-- **No real ML/GNN training.** Detection = explainable rules/heuristics (fan-in/fan-out counting, time-window thresholds, device fingerprint matching), not a trained model. If your AI tool starts scaffolding PyTorch/GNN training code, redirect it — that's future-work, not this week's build.
-- **Dataset size**: aim for low thousands to tens of thousands of synthetic transactions — enough to visibly demonstrate scale in a live demo, not gigabytes. If generation is taking more than a few minutes to run locally, it's too big for our timeline.
+## 0. Why this file exists
+All 6 of you are using AI coding tools independently. Left unguided, 3 pairs' AI sessions will each make reasonable-sounding but *different* choices — different libraries, different error handling styles, different interpretations of "keep it simple." This file exists so those choices are made once, here, instead of 6 times differently. If your AI tool suggests something that contradicts this file, **that's the signal to stop and ask the group**, not to go with whatever sounds more sophisticated.
 
-## Data & schema rules
-- **Never deviate from the 4 JSON schemas in Architecture.md** without posting the change in the group chat. This is the single most important rule — schema drift is what breaks integration on Sept 1.
-- No real names, real account numbers, or any real PII in synthetic data — all identifiers should be obviously synthetic (e.g., `ACC-00042`).
+---
 
-## Error handling / robustness expectations
-- Each workstream should fail loudly and locally (clear error message, doesn't crash the whole pipeline) rather than silently dropping events.
-- It's fine if error handling is minimal/rough for a prototype — don't let your AI tool over-engineer retry logic, circuit breakers, or production-grade resilience. That's time you don't have this week.
+## 1. Stack rules
+- **Python 3.11+ only.** No Node/Go/Java/etc. anywhere in the pipeline, even if your AI tool argues it's "better for streaming." Consistency across 3 pairs under time pressure beats marginal technical fit.
+- **Only use libraries named in Architecture.md**: `kafka-python` or `confluent-kafka` (pick one for the whole team), `networkx`, `FastAPI`, `pydantic` (for schema validation), Leaflet.js via CDN, `docker` + `docker-compose`.
+- If your AI tool suggests adding a new major dependency (a different graph DB, a different web framework, a message-queue alternative, a full frontend framework) — **stop and ask the group first.** Don't accept it just because the AI made a good case for it; you don't have time to debug a new tool's quirks this week.
+- **No real ML/GNN training of any kind.** Detection = explainable rules/heuristics only (fan-in/fan-out counting, time-window thresholds, device fingerprint matching, terminal-affinity lookups). If your AI tool starts scaffolding PyTorch/DGL/PyG training loops, redirect it immediately — that is explicitly future-work (see PRD.md §6), not this week's build, and building it will burn days you don't have.
+- **Dataset size**: aim for low-thousands to tens-of-thousands of synthetic transactions. Enough to visibly demonstrate scale in a live demo, not gigabytes. If generation takes more than a few minutes locally, it is too big — scale it down, don't optimize it.
 
-## What AI tools should NOT do on this project
+## 2. Data & schema rules
+- **Never deviate from the 4 JSON schemas in Architecture.md** without posting the change in the group chat first, and updating `shared/schemas.py` before anyone builds against the new version. Schema drift between workstreams is the single most likely cause of integration failure on Sept 1.
+- **No real names, real account numbers, real device IDs, or any real PII in synthetic data.** All identifiers must be obviously synthetic (e.g. `ACC-00042`, `ATM-SBI-ND-042`). This matters both ethically and for the pitch — you should be able to say "100% synthetic, zero real personal data" without hesitation if asked.
+- Ground-truth labels (`account_tier` in the Account node schema) must be generated by the data generator itself and kept separate/available for evaluating detection accuracy — don't let this get lost; it's how you answer "how accurate is your system" with a real number instead of a guess.
+
+## 3. Coding standards (lightweight — don't over-invest here)
+- One function per rule in the detection engine (`detection/rules/*.py`) — this makes each rule independently testable and independently explainable in the `evidence` field. Don't write one giant `score()` function that mixes all logic together.
+- Every public function should have a one-line docstring. Full documentation is not needed this week; a one-liner is enough for a teammate (or their AI tool) to understand intent without re-reading the implementation.
+- Prefer `pydantic` models (or dataclasses) over raw dicts for the 4 schemas, so schema mismatches throw immediately instead of failing silently deep in the pipeline.
+- Keep files under ~200 lines where reasonable. If an AI-generated file is much longer, ask it to split responsibilities — long files are harder for a teammate to review quickly under deadline pressure.
+
+## 4. Error handling / robustness expectations
+- Each workstream should **fail loudly and locally** (a clear printed/logged error) rather than silently dropping events or crashing the entire pipeline. A malformed event should be logged and skipped, not brought down the consumer.
+- It's fine — expected, even — for error handling to be minimal/rough for a prototype. **Don't let your AI tool over-engineer** retry logic, circuit breakers, dead-letter queues, or production-grade resilience patterns. That is real engineering time you don't have this week, and none of it is visible or valuable in a 3-minute demo.
+- If something breaks during integration on Sept 1, the priority is "get it working end-to-end, even ugly," not "make it robust." Robustness is a Sept 2-3 polish task at most, and only if time allows.
+
+## 5. What AI tools should explicitly NOT do on this project
 - Don't add authentication/login systems — not needed for a local demo.
-- Don't add a database beyond what's needed (no Postgres/MongoDB setup — the in-memory graph + Kafka is enough).
-- Don't "polish" scope beyond what Architecture.md defines — if your AI tool suggests extra features (user roles, historical analytics dashboards, export-to-PDF reports), politely decline unless the group agrees it's worth the time.
-- Don't silently rename JSON fields for "clarity" — even a well-intentioned rename breaks the contract for the other 2 workstreams.
+- Don't add a database beyond what's specified (no Postgres/MongoDB/Redis setup) — the in-memory graph + Kafka is enough for this scope.
+- Don't "polish" scope beyond what PRD.md/Architecture.md define — if an AI tool suggests extra features (user roles, historical analytics dashboards, PDF export, multi-tenant support), politely decline unless the group explicitly agrees it's worth the remaining time.
+- Don't silently rename JSON fields "for clarity" — even a well-intentioned rename breaks the contract for the other 2 workstreams' code.
+- Don't let an AI tool talk you into building the actual STGNN/GAT/production Kafka-Flink-Neo4j stack described in the original source document. That is explicitly Phase 3-4 future work — see Architecture.md's "target architecture" framing. Building it is both infeasible in 3 days and not what a college-level selection round is evaluating.
 
-## Communication rule
-- Any change to Architecture.md's schemas, topic names, or tech stack gets posted in the group chat before you build against it — not after.
-- If you're blocked waiting on another workstream's output, say so immediately rather than mocking around it silently for a day — mocked stand-ins are fine short-term, just flag it so integration doesn't surprise anyone on Sept 1.
+## 6. Git / collaboration workflow (lightweight version)
+- One shared repo, one `main` branch is fine for a team this size and timeline — don't over-engineer a branching strategy.
+- Each pair works primarily in their own folder (`data-generator/`, `pipeline/`, `detection/`) so merge conflicts are rare by construction.
+- Commit small and often, with a message that says what changed in plain language (e.g. `"add fan-in rule, threshold=5 accounts/3min"`), not just `"update"`.
+- **Whoever changes `shared/schemas.py` pushes immediately and posts in the group chat** — this file being out of sync is the highest-risk failure mode for integration day.
+
+## 7. Communication rules
+- Any change to Architecture.md's schemas, topic names, or tech stack choices gets posted in the group chat **before** you build against it — not after you've already built on top of the change.
+- If you're blocked waiting on another workstream's output (e.g. Detection is blocked because the graph store isn't exposing a function it needs), **say so immediately** rather than quietly mocking around it for a day. A mocked stand-in is completely fine as a short-term unblock — just flag it in Memory.md so nobody is surprised when real integration happens.
+- End of each work session, update your pair's entry in Memory.md — a few lines, not a full changelog (see Memory.md for format).
