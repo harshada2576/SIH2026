@@ -17,15 +17,20 @@ from datetime import datetime, timedelta
 
 def _parse_ts(ts):
     if isinstance(ts, datetime):
-        return ts
-    # accepts "2026-08-29T10:03:21Z" or "2026-08-29 10:03:21"
-    ts = ts.replace("Z", "")
-    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
-        try:
-            return datetime.strptime(ts, fmt)
-        except ValueError:
-            continue
-    raise ValueError(f"Unrecognized timestamp format: {ts}")
+        return ts.replace(tzinfo=None) if ts.tzinfo is not None else ts
+    if not isinstance(ts, str):
+        raise ValueError(f"Timestamp must be string or datetime, got {type(ts)}")
+    clean_ts = ts.replace("Z", "")
+    try:
+        dt = datetime.fromisoformat(clean_ts)
+        return dt.replace(tzinfo=None)
+    except ValueError:
+        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S.%f"):
+            try:
+                return datetime.strptime(clean_ts, fmt)
+            except ValueError:
+                continue
+        raise ValueError(f"Unrecognized timestamp format: {ts}")
 
 
 class GraphStore:
@@ -45,6 +50,14 @@ class GraphStore:
         self.accounts = {}   # account_id -> dict
         self.terminals = {}  # terminal_id -> dict
 
+        # device fingerprint index: device -> set of sending account_ids, account_id -> set of devices
+        self._device_senders = defaultdict(set)
+        self._account_devices = defaultdict(set)
+
+        # transaction idempotence: set for O(1) duplicate checks + bounded time window
+        self._seen_tx_ids = set()
+        self._seen_tx_order = deque()
+
     # ---------- reference data loading ----------
 
     def load_accounts(self, accounts: list[dict]):
@@ -61,14 +74,28 @@ class GraphStore:
 
     # ---------- live ingestion ----------
 
-    def add_transaction(self, tx: dict):
+    def add_transaction(self, tx: dict) -> bool:
         """
         tx must match the locked 7-field transaction schema:
         transaction_id, source_account_id, target_account_id,
         amount_inr, timestamp, payment_channel, device_fingerprint
+
+        Returns True if the transaction was accepted, or False if it was a duplicate.
         """
+        tx_id = tx.get("transaction_id")
+        if not tx_id:
+            raise KeyError("transaction_id")
+
+        if tx_id in self._seen_tx_ids:
+            return False  # Idempotent: duplicate delivery has zero effect
+
         src, tgt = tx["source_account_id"], tx["target_account_id"]
         ts = _parse_ts(tx["timestamp"])
+        dev = tx.get("device_fingerprint")
+
+        self._seen_tx_ids.add(tx_id)
+        self._seen_tx_order.append((ts, tx_id))
+        self._prune_seen_tx(ts)
 
         for node in (src, tgt):
             if not self.graph.has_node(node):
@@ -76,22 +103,35 @@ class GraphStore:
 
         self.graph.add_edge(
             src, tgt,
-            transaction_id=tx["transaction_id"],
+            transaction_id=tx_id,
             amount_inr=tx["amount_inr"],
             timestamp=ts,
             payment_channel=tx["payment_channel"],
-            device_fingerprint=tx["device_fingerprint"],
+            device_fingerprint=dev,
         )
+
+        if dev:
+            self._device_senders[dev].add(src)
+            self._account_devices[src].add(dev)
 
         self._recent_activity[src].append((ts, tgt, "out"))
         self._recent_activity[tgt].append((ts, src, "in"))
         self._prune(src, ts)
         self._prune(tgt, ts)
+        return True
+
+    def _prune_seen_tx(self, now: datetime):
+        retention = self.fan_window * 2
+        self._seen_tx_order = deque(
+            (ts, tid) for ts, tid in self._seen_tx_order if timedelta(0) <= (now - ts) <= retention
+        )
+        self._seen_tx_ids = {tid for _, tid in self._seen_tx_order}
 
     def _prune(self, account_id: str, now: datetime):
         dq = self._recent_activity[account_id]
-        while dq and (now - dq[0][0]) > self.fan_window:
-            dq.popleft()
+        self._recent_activity[account_id] = deque(
+            entry for entry in dq if timedelta(0) <= (now - entry[0]) <= self.fan_window
+        )
 
     # ---------- structural signal queries (used by consumer to build graph_signals) ----------
 
@@ -105,24 +145,39 @@ class GraphStore:
         return {cp for _, cp, _ in self._recent_activity[account_id]}
 
     def shares_device_fingerprint(self, account_id: str) -> list[str]:
-        """Return other accounts that have transacted using the same device fingerprint."""
-        fps = set()
-        for _, _, data in self.graph.in_edges(account_id, data=True):
-            fps.add(data.get("device_fingerprint"))
-        for _, _, data in self.graph.out_edges(account_id, data=True):
-            fps.add(data.get("device_fingerprint"))
-
-        matches = []
-        for u, v, data in self.graph.edges(data=True):
-            if data.get("device_fingerprint") in fps and u != account_id and v != account_id:
-                matches.extend([u, v])
-        return list(set(matches))
+        """
+        Return other accounts that have also sent transactions using any
+        device fingerprint used by account_id for outgoing transactions.
+        """
+        devices = self._account_devices.get(account_id, set())
+        if not devices:
+            return []
+        other_accounts = set()
+        for dev in devices:
+            other_accounts.update(self._device_senders.get(dev, set()))
+        other_accounts.discard(account_id)
+        return sorted(list(other_accounts))
 
     def historical_terminal_affinity(self, account_id: str) -> list[str]:
         acc = self.accounts.get(account_id, {})
         return acc.get("historical_terminal_ids", [])
 
-    def account_chain_depth(self, account_id: str) -> int:
-        """Rough proxy for how deep in a mule chain this account sits (victim=0)."""
-        tier = self.accounts.get(account_id, {}).get("account_tier", "")
-        return {"victim": 0, "mule_l1": 1, "mule_l2": 2, "aggregator": 3}.get(tier, -1)
+    def account_chain_depth(self, account_id: str, max_depth: int = 3) -> int:
+        """
+        Computes longest directed incoming path length within the sliding window,
+        bounded to max_depth (0=source/isolated, 1=1-hop, 2=2-hop, 3=3+ hops).
+        """
+        visited = set()
+
+        def _traverse_back(node: str, depth: int) -> int:
+            if depth >= max_depth:
+                return max_depth
+            # get predecessors who sent money to `node` in the active window
+            preds = {cp for _, cp, direction in self._recent_activity.get(node, []) if direction == "in"}
+            unvisited_preds = preds - visited
+            if not unvisited_preds:
+                return depth
+            visited.update(unvisited_preds)
+            return max(_traverse_back(p, depth + 1) for p in unvisited_preds)
+
+        return _traverse_back(account_id, 0)
