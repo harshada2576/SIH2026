@@ -30,28 +30,49 @@ this file assumes reasonable helper function names as placeholders.
 import csv
 import json
 import logging
+import signal
+import sys
 from pathlib import Path
-from kafka import KafkaConsumer, KafkaProducer
+
+# Ensure repo root is on sys.path
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 try:
     from graph_store import GraphStore
 except ImportError:
     from pipeline.graph_store import GraphStore
 
+from shared.kafka_utils import (
+    KAFKA_BOOTSTRAP_SERVERS,
+    TRANSACTIONS_TOPIC,
+    GRAPH_SIGNALS_TOPIC,
+    GRAPH_BUILDER_GROUP,
+    get_kafka_consumer,
+    get_kafka_producer,
+    safe_json_deserializer,
+)
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("consumer")
 
-# Path defaults relative to repository root
-REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ACCOUNTS_PATH = REPO_ROOT / "data" / "output" / "accounts.csv"
 DEFAULT_TERMINALS_PATH = REPO_ROOT / "data" / "output" / "terminals.csv"
 
-KAFKA_BOOTSTRAP = "localhost:9092"
-TRANSACTIONS_TOPIC = "transactions"
-SIGNALS_TOPIC = "graph_signals"
+KAFKA_BOOTSTRAP = KAFKA_BOOTSTRAP_SERVERS
+SIGNALS_TOPIC = GRAPH_SIGNALS_TOPIC
 
 FAN_ALERT_THRESHOLD = 3  # emit a signal-worth-watching once an account sees >= this many
                           # in-window in/out edges; tune once real synthetic data is in
+
+
+def _deserialize_transaction(raw_bytes: bytes | str | None) -> dict | None:
+    """
+    Safely decodes transaction JSON. Returns None on malformed poison-pill payloads
+    to prevent consumer process crashes.
+    """
+    return safe_json_deserializer(raw_bytes)
 
 
 def build_signal(store: GraphStore, account_id: str, ts) -> dict:
@@ -65,6 +86,38 @@ def build_signal(store: GraphStore, account_id: str, ts) -> dict:
         "chain_depth": store.account_chain_depth(account_id),
         "historical_terminal_ids": store.historical_terminal_affinity(account_id),
     }
+
+
+def process_transaction(store: GraphStore, tx: dict) -> list[dict]:
+    """
+    Safely processes a single transaction event against GraphStore.
+    Returns a list of generated graph signals for source and target accounts,
+    or an empty list if malformed/duplicate.
+    """
+    if not isinstance(tx, dict):
+        log.warning(f"Skipping non-dict transaction payload: {type(tx)}")
+        return []
+
+    required = ("transaction_id", "source_account_id", "target_account_id", "amount_inr", "timestamp")
+    for f in required:
+        if f not in tx:
+            log.warning(f"Skipping malformed transaction, missing '{f}': {tx}")
+            return []
+
+    try:
+        accepted = store.add_transaction(tx)
+        if not accepted:
+            log.debug(f"Duplicate transaction ignored: {tx.get('transaction_id')}")
+            return []
+    except Exception as e:
+        log.warning(f"Error updating GraphStore for transaction {tx.get('transaction_id')}: {e}")
+        return []
+
+    signals = []
+    for account_id in (tx["source_account_id"], tx["target_account_id"]):
+        sig = build_signal(store, account_id, tx["timestamp"])
+        signals.append(sig)
+    return signals
 
 
 def load_reference_data(store: GraphStore, accounts_path: str | Path | None = None, terminals_path: str | Path | None = None):
@@ -116,40 +169,63 @@ def run(accounts_path: str | Path | None = None,
     store = GraphStore(fan_window_seconds=300)
     load_reference_data(store, accounts_path, terminals_path)
 
-    consumer = KafkaConsumer(
+    consumer = get_kafka_consumer(
         TRANSACTIONS_TOPIC,
         bootstrap_servers=KAFKA_BOOTSTRAP,
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
+        value_deserializer=_deserialize_transaction,
         auto_offset_reset="earliest",
-        group_id="graph-builder-group",
+        group_id=GRAPH_BUILDER_GROUP,
+        consumer_timeout_ms=1000,
     )
 
-    producer = KafkaProducer(
+    producer = get_kafka_producer(
         bootstrap_servers=KAFKA_BOOTSTRAP,
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
     )
+
+    running = True
+
+    def _signal_handler(signum, frame):
+        nonlocal running
+        log.info(f"Shutdown signal ({signum}) received. Initiating graceful shutdown...")
+        running = False
+
+    # Register OS signal handlers for graceful exit
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
     log.info("Consumer started, listening for transactions...")
 
-    for message in consumer:
-        tx = message.value
+    try:
+        while running:
+            for message in consumer:
+                if not running:
+                    break
+                tx = message.value
+                if tx is None:
+                    continue  # Poison pill skipped
+
+                signals = process_transaction(store, tx)
+                for signal_payload in signals:
+                    producer.send(SIGNALS_TOPIC, value=signal_payload)
+
+                    if signal_payload["fan_in_count"] >= FAN_ALERT_THRESHOLD or signal_payload["fan_out_count"] >= FAN_ALERT_THRESHOLD:
+                        log.info(f"Elevated activity: {signal_payload['account_id']} -> {signal_payload}")
+    except Exception as e:
+        log.error(f"Unexpected error in consumer loop: {e}", exc_info=True)
+    finally:
+        log.info("Closing Kafka producer and consumer resources...")
         try:
-            store.add_transaction(tx)
-        except KeyError as e:
-            log.error(f"Malformed transaction, missing field {e}: {tx}")
-            continue
-
-        # Emit a signal for both parties in the transaction — cheap to compute,
-        # lets the scorer decide what crosses its own risk threshold.
-        for account_id in (tx["source_account_id"], tx["target_account_id"]):
-            signal = build_signal(store, account_id, tx["timestamp"])
-            producer.send(SIGNALS_TOPIC, value=signal)
-
-            if signal["fan_in_count"] >= FAN_ALERT_THRESHOLD or signal["fan_out_count"] >= FAN_ALERT_THRESHOLD:
-                log.info(f"Elevated activity: {account_id} -> {signal}")
-
-    producer.flush()
+            producer.flush(timeout=5)
+            producer.close(timeout=5)
+        except Exception as e:
+            log.warning(f"Error closing producer: {e}")
+        try:
+            consumer.close(autocommit=True)
+        except Exception as e:
+            log.warning(f"Error closing consumer: {e}")
+        log.info("Consumer shutdown complete.")
 
 
 if __name__ == "__main__":
     run()
+

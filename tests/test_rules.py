@@ -349,5 +349,44 @@ def test_transaction_idempotence_and_state_preservation():
     assert len(store.graph.edges) == 2
 
 
+def test_consumer_malformed_payload_and_poison_pill_handling():
+    """
+    Test 8:
+    Validates that:
+    1. Unparseable non-JSON / corrupted bytes return None without raising uncaught exception.
+    2. Missing required fields / wrong payload types are safely skipped.
+    3. Subsequent valid transactions continue to be processed normally.
+    4. Duplicate deliveries return no new signals.
+    """
+    from pipeline.consumer import _deserialize_transaction, process_transaction
+
+    store = GraphStore(fan_window_seconds=300)
+
+    # 1. Non-JSON poison pill byte sequence
+    corrupted_bytes = b"\x00\xff\xfe INVALID_NON_JSON_BYTES"
+    assert _deserialize_transaction(corrupted_bytes) is None
+
+    # 2. Valid JSON bytes
+    valid_raw = b'{"transaction_id": "TX_VALID_1", "source_account_id": "A", "target_account_id": "B", "amount_inr": 100.0, "timestamp": "2026-08-29T10:00:00Z", "payment_channel": "UPI", "device_fingerprint": "D1"}'
+    tx_dict = _deserialize_transaction(valid_raw)
+    assert isinstance(tx_dict, dict)
+    assert tx_dict["transaction_id"] == "TX_VALID_1"
+
+    # 3. Process malformed dict (missing amount_inr and timestamp) -> returns empty list safely
+    malformed_dict = {"transaction_id": "TX_BAD", "source_account_id": "A"}
+    assert process_transaction(store, malformed_dict) == []
+
+    # 4. Process valid transaction -> returns 2 signals (source & target)
+    signals = process_transaction(store, tx_dict)
+    assert len(signals) == 2
+    assert signals[0]["account_id"] == "A"
+    assert signals[1]["account_id"] == "B"
+
+    # 5. Duplicate delivery of the same transaction -> returns empty list safely
+    dup_signals = process_transaction(store, tx_dict)
+    assert dup_signals == []
+
+
+
 
 

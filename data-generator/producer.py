@@ -24,11 +24,16 @@ try:
 except ImportError:
     from partition_strategy import get_partition_key
 
+from shared.kafka_utils import (
+    KAFKA_BOOTSTRAP_SERVERS,
+    TRANSACTIONS_TOPIC,
+    get_kafka_producer,
+)
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("producer")
 
-KAFKA_BOOTSTRAP = "localhost:9092"
-TRANSACTIONS_TOPIC = "transactions"
+KAFKA_BOOTSTRAP = KAFKA_BOOTSTRAP_SERVERS
 DEFAULT_CSV_PATH = REPO_ROOT / "data" / "output" / "transactions.csv"
 
 
@@ -59,8 +64,8 @@ def load_transactions_from_csv(csv_path: Path | str = DEFAULT_CSV_PATH) -> list[
                 "target_account_id": str(row["target_account_id"]),
                 "amount_inr": float(row["amount_inr"]),
                 "timestamp": str(row["timestamp"]),
-                "payment_channel": str(row["payment_channel"]),
-                "device_fingerprint": str(row["device_fingerprint"]),
+                "payment_channel": str(row.get("payment_channel", "UPI")),
+                "device_fingerprint": str(row.get("device_fingerprint", "")),
             }
             transactions.append(tx)
 
@@ -79,10 +84,8 @@ def publish_transactions(
     Publishes transaction events to Kafka topic "transactions",
     keyed by partition_strategy.get_partition_key(tx).
     """
-    producer = KafkaProducer(
+    producer = get_kafka_producer(
         bootstrap_servers=bootstrap_servers,
-        key_serializer=lambda k: k.encode("utf-8") if isinstance(k, str) else k,
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
     )
 
     log.info(f"Starting publication of {len(transactions)} transactions to '{topic}'...")
