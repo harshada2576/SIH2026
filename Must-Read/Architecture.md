@@ -57,16 +57,12 @@ We're building a prototype that ingests a stream of financial transactions, dete
                                         │ publishes JSON
                                         │ (Risk Alert schema)
                                         ▼
-                         ┌───────────────────────────┐
-                         │        KAFKA BROKER          │
-                         │  topic: "risk_alerts"         │
-                         └──────────────┬──────────────┘
                             ┌───────────┴────────────┐
                             ▼                          ▼
                  ┌────────────────────┐    ┌────────────────────────┐
-                 │ Alert Dispatcher     │    │ Dashboard (FastAPI +     │
-                 │ (console/webhook/    │    │ Leaflet.js map + evidence│
-                 │  email stub)          │    │  panel)                  │
+                 │ Alert Dispatcher     │    │ CyberShield Android App│
+                 │ (console/webhook/    │    │ (Kotlin + Jetpack      │
+                 │  email stub)          │    │  Compose Radar Map)    │
                  └────────────────────┘    └────────────────────────┘
 ```
 
@@ -80,7 +76,7 @@ We're building a prototype that ingests a stream of financial transactions, dete
 ## 3. Sequence diagram — one transaction's journey (for your demo narration)
 
 ```
-Data Generator          Kafka             Consumer/Graph        Detection         Dashboard
+Data Generator          Kafka             Consumer/Graph        Detection        CyberShield Android
      |                    |                     |                   |                 |
      |--publish txn------>|                     |                   |                 |
      |                    |--deliver----------->|                   |                 |
@@ -94,8 +90,8 @@ Data Generator          Kafka             Consumer/Graph        Detection       
      |                    |                     |                   |--threshold      |
      |                    |                     |                   |  crossed?       |
      |                    |                     |                   |--publish alert->|
-     |                    |                     |                   |                 |--render on map
-     |                    |                     |                   |                 |--show evidence list
+     |                    |                     |                   |                 |--render on radar map
+     |                    |                     |                   |                 |--show XAI evidence & trail
 ```
 
 Use this exact diagram (or redraw it) as a slide — it's your "here's how data actually flows through our system" visual, and it maps 1:1 onto the demo you're going to click through live.
@@ -106,12 +102,11 @@ Use this exact diagram (or redraw it) as a slide — it's your "here's how data 
 
 | Layer | Choice | Why | Explicitly avoid |
 |---|---|---|---|
-| Language | Python 3.11+ | One language across all 3 workstreams = teammates can read each other's code under time pressure | Node, Go, Java for any piece |
+| Language | Python 3.11+ (Backend) & Kotlin (Android) | High developer velocity for pipeline & production native mobile defense client | Node, Go, web-only wrappers |
 | Streaming | Kafka (local, single-broker, Docker) | Industry-standard, judges will recognize the name, genuinely does demonstrate the scaling pattern | Multi-broker cluster, cloud-managed Kafka (MSK/Confluent Cloud) — setup risk not worth it this week |
 | Kafka client | `kafka-python` or `confluent-kafka` (pick one, both pairs use the same one) | Stable, well-documented | Mixing both across workstreams |
 | Graph store | `networkx` (in-memory) | Zero setup, good enough for thousands of nodes, has built-in centrality/motif functions you can cite | Neo4j, Spark GraphX (mention only, don't install) |
-| Backend/API | FastAPI | Async-friendly, minimal boilerplate, auto-generates OpenAPI docs (nice if a judge asks to see the API) | Flask (slower to add async Kafka consumer loop), Django (way too heavy) |
-| Dashboard frontend | Single `index.html` + Leaflet.js via CDN | No build step, no npm install headaches under deadline pressure | React/Vue unless someone already has a fast boilerplate ready |
+| Frontend Dashboard (ONLY 1) | **CyberShield Native Android App (`CyberShield/`)** | Kotlin, Jetpack Compose, Material3, Google Maps SDK, Live Heatmaps & Dispatch Queue | Web frontend, HTML, Leaflet.js, React (No web frontend needed) |
 | Data format | JSON everywhere | Human-readable, fastest for 3 pairs to debug against each other | Avro/Protobuf (adds schema-registry complexity you don't need this week) |
 | Containerization | Docker + `docker-compose.yml` for Kafka + Zookeeper (or KRaft mode, no Zookeeper) | One command (`docker compose up`) to get Kafka running on any teammate's laptop | Manual Kafka binary install (version mismatches waste hours) |
 

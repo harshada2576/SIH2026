@@ -43,9 +43,9 @@ When you close an AI chat session and open a new one tomorrow (or switch tools m
   - `detection/terminal_ranking.py`: `rank_terminals` → 0-100 PRIORITY per terminal (history 30 / distance 20 / time-pattern 15 / type 10 / network-assoc 15 / district 10). Framed as priority, NOT calibrated probability (schema field stays `probability` per locked contract).
   - `detection/alert_dispatcher.py`: console stub only (no Kafka yet — per brief). Signature already takes `kafka_topic`; wiring the real producer into it is integration-day work. Reconfigures stdout to UTF-8 (₹ renders on Windows).
   - `scripts/seed_terminals.py` → `shared/terminals.json` (30 fictional terminals, 3 fake districts, deterministic seed) — scorer loads it via `load_terminals()`.
-- Current state: `python -m pytest tests -q` → 24 passed. Rules test clean on known fraud vs boring graphs. Live demo verified: aggregator case → HIGH 0.79 alert, trail + reasons + ranked terminals printed by dispatcher.
-- Blockers: none. Waiting on WS1 (real event stream w/ ground-truth tiers) and WS2 Kafka wiring to go live end-to-end; scorer already interfaces via GraphStore API.
-- Caveats logged for later: dashboard (app.py/index.html) intentionally untouched (other pair). `kafka_utils.py` untouched.
-- Next step: WS2/3 integration — feed real Kafka transactions into GraphStore, publish RiskAlerts to `risk_alerts` (currently console stub), dashboard renders map from `predicted_terminals` + evidence.
-
-*(Oldest conventions: newest at bottom. Add below this line.)*
+### Aug 30, 2026 — Frontend Mandate & Android Testing
+- Architecture Clarification: Confirmed that **CyberShield Native Android App (`CyberShield/`)** is the SOLE frontend for the project. Removed unused HTML web dashboard files (`detection/dashboard/*`).
+- Updated all documentation (`AGENTS.md`, `Must-Read/Rules.md`, `Must-Read/Architecture.md`, `Must-Read/Design.md`, `Must-Read/PRD.md`) so all agents and team members remain aligned on the single Kotlin + Jetpack Compose Android client.
+- Python backend tests: `python -m pytest` -> 24 passed (100%).
+- Android project: `CyberShield/` contains the native Kotlin Jetpack Compose app with Radar Google Maps, Investigation XAI drawer, Dispatch queue, and Auth screens.
+- Next step: Build and test CyberShield Android Kotlin app using Gradle.

@@ -33,12 +33,13 @@ Cybercrime proceeds in India move through chains of "mule" bank accounts — oft
 2. **Kafka-based ingestion pipeline** — producer publishes transaction events to a partitioned topic; consumer(s) build/update an in-memory graph in real time.
 3. **Detection engine** — explainable rule/heuristic scorer (fan-in ratio, dormancy-then-burst, device fingerprint reuse, forwarded-fund proportion, terminal affinity) — **not** a trained GNN.
 4. **Alerting** — a triggered notification (console log and/or webhook/email stub) when a risk threshold is crossed.
-5. **Dashboard** — a Leaflet map view showing flagged accounts, ranked predicted terminals with confidence scores, and the evidence trail per alert.
+5. **CyberShield Android App (Frontend)** — Native Kotlin + Jetpack Compose mobile command dashboard showing flagged accounts, ranked predicted terminals with confidence scores on Google Maps, and explainable evidence trail per alert.
 6. **Scalability story** — a live demonstration of partitioned throughput (2-3 consumers) plus a one-slide capacity/throughput argument extending the local numbers to national scale.
 
 ## 6. Explicitly out of scope (state this confidently in the pitch — it's a strength, not an apology)
 - Real bank data or any real PII of any kind.
 - A trained GNN/GAT/TGN model — heuristics/rules are used instead; the trained-model architecture is presented as **target/future work** with the math formulation on a separate "roadmap" slide.
+- Web HTML/JS dashboard — CyberShield Native Android App (`CyberShield/`) is the sole designated frontend.
 - A production-grade multi-broker Kafka cluster — single local broker demonstrating the correct partitioning *pattern* is sufficient; extrapolation to production scale is a math slide, not a build task.
 - Real legal/regulatory integration, real police/bank API integration, real I4C/JCCT system integration.
 - Authentication, user accounts, production security hardening — irrelevant to a local prototype demo.
@@ -55,8 +56,8 @@ Cybercrime proceeds in India move through chains of "mule" bank accounts — oft
 | FR6 | Graph store exposes queryable functions (fan-in count, neighborhood lookup, device fingerprint overlap) | Workstream 2 |
 | FR7 | At least 4 independent heuristic rules run against the graph and combine into a single risk score | Workstream 3 |
 | FR8 | Alerts crossing threshold are published to `risk_alerts` with populated `evidence` array | Workstream 3 |
-| FR9 | Dashboard renders flagged accounts/terminals on a map with risk-based color coding | Workstream 3 |
-| FR10 | Dashboard shows the evidence trail (which rules fired) per alert, on click/select | Workstream 3 |
+| FR9 | CyberShield Android App renders flagged accounts/terminals on Google Maps with risk-based color coding | Workstream 3 |
+| FR10 | CyberShield Android App shows the evidence trail (which rules fired) per alert, on click/select | Workstream 3 |
 | FR11 | System demonstrably runs 2+ Kafka consumers in the same consumer group in parallel | Workstream 2 |
 
 ## 8. Non-functional requirements

@@ -10,9 +10,9 @@ All 6 of you are using AI coding tools independently. Left unguided, 3 pairs' AI
 ---
 
 ## 1. Stack rules
-- **Python 3.11+ only.** No Node/Go/Java/etc. anywhere in the pipeline, even if your AI tool argues it's "better for streaming." Consistency across 3 pairs under time pressure beats marginal technical fit.
-- **Only use libraries named in Architecture.md**: `kafka-python` or `confluent-kafka` (pick one for the whole team), `networkx`, `FastAPI`, `pydantic` (for schema validation), Leaflet.js via CDN, `docker` + `docker-compose`.
-- If your AI tool suggests adding a new major dependency (a different graph DB, a different web framework, a message-queue alternative, a full frontend framework) — **stop and ask the group first.** Don't accept it just because the AI made a good case for it; you don't have time to debug a new tool's quirks this week.
+- **Backend**: Python 3.11+ only (`kafka-python`/`confluent-kafka`, `networkx`, `pydantic`, `docker` + `docker-compose`).
+- **Frontend (MANDATORY)**: **CyberShield Native Android App (`CyberShield/`)** written in **Kotlin & Jetpack Compose**. This is the **ONLY** frontend for this project. There is **NO** web frontend, HTML dashboard, or JavaScript framework.
+- If your AI tool suggests adding a new major dependency (a different graph DB, a different web framework, a message-queue alternative, or creating a web app) — **stop and ask the group first.**
 - **No real ML/GNN training of any kind.** Detection = explainable rules/heuristics only (fan-in/fan-out counting, time-window thresholds, device fingerprint matching, terminal-affinity lookups). If your AI tool starts scaffolding PyTorch/DGL/PyG training loops, redirect it immediately — that is explicitly future-work (see PRD.md §6), not this week's build, and building it will burn days you don't have.
 - **Dataset size**: aim for low-thousands to tens-of-thousands of synthetic transactions. Enough to visibly demonstrate scale in a live demo, not gigabytes. If generation takes more than a few minutes locally, it is too big — scale it down, don't optimize it.
 
