@@ -3,7 +3,6 @@ package com.i4c.cybershield.ui.investigation
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.i4c.cybershield.model.*
 import com.i4c.cybershield.ui.theme.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 
 // ═══════════════════════════════════════════════════════════════════════
 //  TAB 2: INVESTIGATION & EXPLAINABILITY WORKBENCH
@@ -472,7 +473,7 @@ private fun RiskBreakdownCard(breakdown: RiskBreakdown) {
                 Spacer(modifier = Modifier.height(6.dp))
 
                 LinearProgressIndicator(
-                    progress = breakdown.totalPercent / 100f,
+                    progress =  breakdown.totalPercent / 100f ,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(8.dp)
@@ -530,7 +531,7 @@ private fun XaiSignalRow(signal: RiskSignal, index: Int) {
         Spacer(modifier = Modifier.height(6.dp))
 
         LinearProgressIndicator(
-            progress = signal.contributionPercent / 100f,
+            progress =  signal.contributionPercent / 100f ,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(4.dp)

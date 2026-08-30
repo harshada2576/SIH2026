@@ -34,6 +34,8 @@ import com.i4c.cybershield.model.RiskLevel
 import com.i4c.cybershield.model.TerminalMarker
 import com.i4c.cybershield.model.TerminalType
 import com.i4c.cybershield.ui.theme.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.ExperimentalMaterial3Api
 
 // ═══════════════════════════════════════════════════════════════════════
 //  TAB 1: LIVE CASHOUT RADAR
@@ -174,7 +176,6 @@ fun RadarMapScreen(
 }
 
 // ─── Sub-Components ────────────────────────────────────────────────────
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RadarTopBar(activeFilter: String, onFilterChanged: (String) -> Unit) {
@@ -485,7 +486,7 @@ private fun TerminalDetailSheet(
 
                     // Progress bar
                     LinearProgressIndicator(
-                        progress = terminal.confidencePercent / 100f,
+                        progress =  terminal.confidencePercent / 100f ,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp)
