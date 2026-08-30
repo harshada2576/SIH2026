@@ -12,9 +12,6 @@
         android:theme="@style/Theme.CyberShield"
         tools:targetApi="34">
 
-        <meta-data
-            android:name="com.google.android.geo.API_KEY"
-            android:value="MAPS_API_KEY_PLACEHOLDER" />
 
         <activity
             android:name=".MainActivity"

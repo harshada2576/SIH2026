@@ -73,9 +73,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
 
-    // Google Maps Compose
-    implementation("com.google.maps.android:maps-compose:4.3.1")
-    implementation("com.google.android.gms:play-services-maps:18.2.0")
+    // MapLibre
+    implementation("org.maplibre.gl:android-sdk:11.5.1")
+    implementation("org.maplibre.gl:android-plugin-annotation-v9:3.0.0")
 
     // Accompanist
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.32.0")

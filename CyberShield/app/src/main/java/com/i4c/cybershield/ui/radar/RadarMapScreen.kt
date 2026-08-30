@@ -22,14 +22,29 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.maps.android.compose.*
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.RasterLayer
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.sources.RasterSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
 import com.i4c.cybershield.model.RiskLevel
 import com.i4c.cybershield.model.TerminalMarker
 import com.i4c.cybershield.model.TerminalType
@@ -51,11 +66,8 @@ fun RadarMapScreen(
     onTerminalDismissed: () -> Unit,
     onNavigateToInvestigation: () -> Unit
 ) {
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(
-            LatLng(28.5708, 77.3261), 14f
-        )
-    }
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -73,51 +85,137 @@ fun RadarMapScreen(
                 .fillMaxSize()
                 .weight(1f)
         ) {
-            GoogleMap(
-                modifier = Modifier.fillMaxSize(),
-                cameraPositionState = cameraPositionState,
-                uiSettings = MapUiSettings(
-                    zoomControlsEnabled = false,
-                    compassEnabled = true,
-                    mapToolbarEnabled = false
-                ),
-                properties = MapProperties(
-                    mapType = MapType.NORMAL,
-                    isBuildingEnabled = true
-                )
-            ) {
-                // Heatmap overlay circles for high-risk clusters
-                terminals.filter { it.confidencePercent >= 70 }.forEach { terminal ->
-                    Circle(
-                        center = LatLng(terminal.latitude, terminal.longitude),
-                        radius = 800.0, // meters
-                        fillColor = AlertOrange.copy(alpha = 0.15f),
-                        strokeColor = AlertOrange.copy(alpha = 0.3f),
-                        strokeWidth = 2f
-                    )
-                }
+            val mapView = remember {
+                MapLibre.getInstance(context)
+                MapView(context).apply {
+                    onCreate(null)
+                    onStart()
+                    onResume()
+                    getMapAsync { mapLibreMap ->
+                        mapLibreMap.uiSettings.isZoomGesturesEnabled = true
+                        mapLibreMap.uiSettings.isCompassEnabled = true
+                        mapLibreMap.cameraPosition = CameraPosition.Builder()
+                            .target(LatLng(28.5708, 77.3261))
+                            .zoom(14.0)
+                            .build()
 
-                // Terminal markers
-                terminals.forEach { terminal ->
-                    val markerColor = if (terminal.confidencePercent >= 80)
-                        BitmapDescriptorFactory.HUE_ORANGE
-                    else
-                        BitmapDescriptorFactory.HUE_ROSE
-
-                    Marker(
-                        state = MarkerState(
-                            position = LatLng(terminal.latitude, terminal.longitude)
-                        ),
-                        title = terminal.id,
-                        snippet = "${terminal.riskLevel.displayName} • ${terminal.confidencePercent}%",
-                        icon = BitmapDescriptorFactory.defaultMarker(markerColor),
-                        onClick = {
-                            onTerminalSelected(terminal)
-                            true
+                        val styleJson = """
+                        {
+                          "version": 8,
+                          "name": "OpenStreetMap",
+                          "sources": {
+                            "osm": {
+                              "type": "raster",
+                              "tiles": [
+                                "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                                "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                                "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                              ],
+                              "tileSize": 256,
+                              "maxzoom": 19,
+                              "attribution": "© OpenStreetMap contributors"
+                            }
+                          },
+                          "layers": [
+                            {
+                              "id": "osm-layer",
+                              "type": "raster",
+                              "source": "osm",
+                              "minzoom": 0,
+                              "maxzoom": 19
+                            }
+                          ]
                         }
-                    )
+                        """.trimIndent()
+
+                        mapLibreMap.setStyle(org.maplibre.android.maps.Style.Builder().fromJson(styleJson)) { style ->
+                            // Layers will be added in update block
+                        }
+
+                        mapLibreMap.addOnMapClickListener { point ->
+                            val screenPoint = mapLibreMap.projection.toScreenLocation(point)
+                            val features = mapLibreMap.queryRenderedFeatures(screenPoint, "markers-layer")
+                            if (features.isNotEmpty()) {
+                                val id = features[0].getStringProperty("id")
+                                val terminal = terminals.find { it.id == id }
+                                if (terminal != null) {
+                                    onTerminalSelected(terminal)
+                                    return@addOnMapClickListener true
+                                }
+                            }
+                            false
+                        }
+                    }
                 }
             }
+
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    when (event) {
+                        Lifecycle.Event.ON_START -> mapView.onStart()
+                        Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                        Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                        Lifecycle.Event.ON_STOP -> mapView.onStop()
+                        Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                        else -> {}
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                    mapView.onDestroy()
+                }
+            }
+
+            AndroidView(
+                factory = { mapView },
+                modifier = Modifier.fillMaxSize(),
+                update = { view ->
+                    view.getMapAsync { map ->
+                        map.getStyle { style ->
+                            val features = terminals.map { terminal ->
+                                Feature.fromGeometry(Point.fromLngLat(terminal.longitude, terminal.latitude)).apply {
+                                    addStringProperty("id", terminal.id)
+                                    addNumberProperty("confidence", terminal.confidencePercent)
+                                    addBooleanProperty("isHotspot", terminal.confidencePercent >= 70)
+                                }
+                            }
+
+                            val source = style.getSourceAs<GeoJsonSource>("terminals-source")
+                            if (source != null) {
+                                source.setGeoJson(FeatureCollection.fromFeatures(features))
+                            } else {
+                                style.addSource(GeoJsonSource("terminals-source", FeatureCollection.fromFeatures(features)))
+
+                                val hotspotLayer = CircleLayer("hotspots-layer", "terminals-source")
+                                    .withFilter(Expression.eq(Expression.get("isHotspot"), true))
+                                    .withProperties(
+                                        PropertyFactory.circleRadius(80f),
+                                        PropertyFactory.circleColor(android.graphics.Color.parseColor("#26FF9800")),
+                                        PropertyFactory.circleStrokeColor(android.graphics.Color.parseColor("#4DFF9800")),
+                                        PropertyFactory.circleStrokeWidth(2f)
+                                    )
+                                style.addLayer(hotspotLayer)
+
+                                val markerLayer = CircleLayer("markers-layer", "terminals-source")
+                                    .withProperties(
+                                        PropertyFactory.circleRadius(8f),
+                                        PropertyFactory.circleColor(
+                                            Expression.step(
+                                                Expression.get("confidence"),
+                                                Expression.color(android.graphics.Color.parseColor("#E91E63")),
+                                                Expression.stop(80f, Expression.color(android.graphics.Color.parseColor("#FF9800")))
+                                            )
+                                        ),
+                                        PropertyFactory.circleStrokeWidth(1f),
+                                        PropertyFactory.circleStrokeColor(android.graphics.Color.WHITE)
+                                    )
+                                style.addLayer(markerLayer)
+                            }
+                        }
+                    }
+                }
+            )
 
             // Risk Legend overlay
             Card(
