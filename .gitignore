@@ -61,6 +61,7 @@ CyberShield/build/
 CyberShield/app/build/
 CyberShield/captures/
 CyberShield/local.properties
+local.properties
 CyberShield/.cxx/
 CyberShield/.externalNativeBuild/
 CyberShield/*.iml
