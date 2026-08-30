@@ -42,6 +42,18 @@ htmlcov/
 Thumbs.db
 Desktop.ini
 
+# Android/Gradle (CyberShield)
+CyberShield/.gradle/
+CyberShield/build/
+CyberShield/app/build/
+CyberShield/*.log
+CyberShield/hs_err_pid*.log
+CyberShield/replay_pid*.log
+CyberShield/local.properties
+CyberShield/.externalNativeBuild/
+CyberShield/.cxx/
+CyberShield/gradle/wrapper/gradle-wrapper.jar
+
 # Jupyter / notebooks checkpoints
 .ipynb_checkpoints/
 
