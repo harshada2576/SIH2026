@@ -1,44 +1,65 @@
-"""
-pipeline/graph_store.py
+"""pipeline/graph_store.py
 
-In-memory graph representation of the transaction network.
-Consumer.py calls add_transaction() for every Kafka event it reads.
-Reference data (accounts, terminals) is loaded once at startup — it is NOT
-streamed via Kafka, per the agreed schema (accounts.py / terminals.py output).
-
-Design note: this deliberately does NOT touch ground-truth/scenario data.
-The graph is built only from what a real system would actually see live.
+In-memory directed transaction graph (NetworkX) supporting:
+1. Real-time streaming sliding-window ingestion with application-level idempotence and memory bounding.
+2. Complete graph query interfaces for the 8 explainable heuristic detection rules.
+3. Account and terminal static metadata indexing.
 """
+from __future__ import annotations
+
+import logging
+from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Set, Union
 
 import networkx as nx
-from collections import deque, defaultdict
-from datetime import datetime, timedelta
+
+from shared.schemas import AccountNodeMetadata, TransactionEvent, ValidationError
+
+log = logging.getLogger("graph_store")
 
 
-def _parse_ts(ts):
-    if isinstance(ts, datetime):
-        return ts.replace(tzinfo=None) if ts.tzinfo is not None else ts
-    if not isinstance(ts, str):
-        raise ValueError(f"Timestamp must be string or datetime, got {type(ts)}")
-    clean_ts = ts.replace("Z", "")
-    try:
-        dt = datetime.fromisoformat(clean_ts)
-        return dt.replace(tzinfo=None)
-    except ValueError:
-        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S.%f"):
-            try:
-                return datetime.strptime(clean_ts, fmt)
-            except ValueError:
-                continue
-        raise ValueError(f"Unrecognized timestamp format: {ts}")
+def utcnow() -> datetime:
+    """Current time as an aware UTC datetime (single source for all rules)."""
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(dt: Union[str, datetime]) -> datetime:
+    """Convert datetime or ISO string to UTC aware datetime."""
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    if isinstance(dt, str):
+        clean_ts = dt.replace("Z", "+00:00")
+        try:
+            d = datetime.fromisoformat(clean_ts)
+            if d.tzinfo is None:
+                return d.replace(tzinfo=timezone.utc)
+            return d.astimezone(timezone.utc)
+        except Exception:
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S.%f"):
+                try:
+                    d = datetime.strptime(dt.replace("Z", ""), fmt)
+                    return d.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    continue
+            raise ValueError(f"Unrecognized timestamp format: '{dt}'")
+    raise ValueError(f"Expected datetime or str, got: {type(dt)}")
+
+
+def _parse_ts(ts: Union[str, datetime]) -> datetime:
+    """Alias for UTC parsing."""
+    return _as_utc(ts)
 
 
 class GraphStore:
-    def __init__(self, fan_window_seconds: int = 300):
+    """Directed graph representing accounts (nodes) and transactions (edges)."""
+
+    def __init__(self, fan_window_seconds: int = 300) -> None:
         """
         fan_window_seconds: sliding window used for fan-in/fan-out counting
-        (default 5 minutes — matches the kind of rapid-layering pattern
-        the data generator injects).
+        (default 5 minutes — matches the rapid-layering pattern).
         """
         self.graph = nx.MultiDiGraph()
         self.fan_window = timedelta(seconds=fan_window_seconds)
@@ -46,55 +67,83 @@ class GraphStore:
         # account_id -> deque of (timestamp, counterparty_id, direction) for windowed queries
         self._recent_activity = defaultdict(deque)
 
-        # reference data, loaded once
-        self.accounts = {}   # account_id -> dict
-        self.terminals = {}  # terminal_id -> dict
+        # reference data
+        self.accounts: Dict[str, Dict[str, Any]] = {}
+        self.terminals: Dict[str, Dict[str, Any]] = {}
+        self._metadata: Dict[str, AccountNodeMetadata] = {}
 
-        # device fingerprint index: device -> set of sending account_ids, account_id -> set of devices
+        # device fingerprint index
         self._device_senders = defaultdict(set)
         self._account_devices = defaultdict(set)
 
-        # transaction idempotence: set for O(1) duplicate checks + bounded time window
-        self._seen_tx_ids = set()
-        self._seen_tx_order = deque()
+        # transaction deduplication & history
+        self._seen_tx_ids: Set[str] = set()
+        self._seen_tx_order: deque = deque()
+        self._txns: Dict[str, TransactionEvent] = {}
 
-    # ---------- reference data loading ----------
+    # ------------------------------------------------------------------------
+    # Reference Data Loading
+    # ------------------------------------------------------------------------
 
-    def load_accounts(self, accounts: list[dict]):
+    def add_account_metadata(self, meta: AccountNodeMetadata) -> None:
+        """Attach static account attributes (first-seen metadata)."""
+        self._metadata[meta.account_id] = meta
+        self.accounts[meta.account_id] = meta.to_dict()
+        if not self.graph.has_node(meta.account_id):
+            self.graph.add_node(meta.account_id, node_type="account", meta=meta, **meta.to_dict())
+        else:
+            self.graph.nodes[meta.account_id]["meta"] = meta
+            for k, v in meta.to_dict().items():
+                self.graph.nodes[meta.account_id][k] = v
+
+    def load_accounts(self, accounts: List[Dict[str, Any]]) -> None:
+        """Bulk load account reference data."""
         for acc in accounts:
-            self.accounts[acc["account_id"]] = acc
-            if not self.graph.has_node(acc["account_id"]):
-                self.graph.add_node(acc["account_id"], node_type="account", **acc)
+            meta = AccountNodeMetadata.from_dict(acc) if not isinstance(acc, AccountNodeMetadata) else acc
+            self.add_account_metadata(meta)
 
-    def load_terminals(self, terminals: list[dict]):
+    def load_terminals(self, terminals: List[Dict[str, Any]]) -> None:
+        """Bulk load terminal reference data."""
         for term in terminals:
-            self.terminals[term["terminal_id"]] = term
-            if not self.graph.has_node(term["terminal_id"]):
-                self.graph.add_node(term["terminal_id"], node_type="terminal", **term)
+            tid = str(term.get("terminal_id", ""))
+            self.terminals[tid] = term
+            if not self.graph.has_node(tid):
+                self.graph.add_node(tid, node_type="terminal", **term)
 
-    # ---------- live ingestion ----------
+    # ------------------------------------------------------------------------
+    # Live Streaming Transaction Ingestion
+    # ------------------------------------------------------------------------
 
-    def add_transaction(self, tx: dict) -> bool:
+    def add_transaction(self, tx: Union[Dict[str, Any], TransactionEvent]) -> bool:
         """
-        tx must match the locked 7-field transaction schema:
-        transaction_id, source_account_id, target_account_id,
-        amount_inr, timestamp, payment_channel, device_fingerprint
+        Add a transaction to the graph.
 
-        Returns True if the transaction was accepted, or False if it was a duplicate.
+        Supports both dict payloads (matching 7 locked fields) and TransactionEvent objects.
+        Returns True if accepted, False if duplicate (idempotent).
         """
-        tx_id = tx.get("transaction_id")
-        if not tx_id:
-            raise KeyError("transaction_id")
+        if isinstance(tx, dict):
+            tx_id = tx.get("transaction_id")
+            if not tx_id:
+                raise KeyError("transaction_id")
+            if tx_id in self._seen_tx_ids or tx_id in self._txns:
+                return False
 
-        if tx_id in self._seen_tx_ids:
-            return False  # Idempotent: duplicate delivery has zero effect
+            event = TransactionEvent.from_dict(tx)
+        elif isinstance(tx, TransactionEvent):
+            tx_id = tx.transaction_id
+            if tx_id in self._seen_tx_ids or tx_id in self._txns:
+                return False
+            event = tx
+        else:
+            raise TypeError(f"Expected dict or TransactionEvent, got: {type(tx)}")
 
-        src, tgt = tx["source_account_id"], tx["target_account_id"]
-        ts = _parse_ts(tx["timestamp"])
-        dev = tx.get("device_fingerprint")
+        src, tgt = event.source_account_id, event.target_account_id
+        ts = event.timestamp_utc
+        dev = event.device_fingerprint
 
         self._seen_tx_ids.add(tx_id)
         self._seen_tx_order.append((ts, tx_id))
+        self._txns[tx_id] = event
         self._prune_seen_tx(ts)
 
         for node in (src, tgt):
@@ -104,10 +153,14 @@ class GraphStore:
         self.graph.add_edge(
             src, tgt,
             transaction_id=tx_id,
-            amount_inr=tx["amount_inr"],
+            amount_inr=event.amount_inr,
+            amount=event.amount_inr,
             timestamp=ts,
-            payment_channel=tx["payment_channel"],
+            payment_channel=event.payment_channel,
+            channel=event.payment_channel,
             device_fingerprint=dev,
+            device=dev,
+            txn=event,
         )
 
         if dev:
@@ -121,6 +174,7 @@ class GraphStore:
         return True
 
     def _prune_seen_tx(self, now: datetime):
+        """Prune old seen transaction IDs to bound memory footprint."""
         retention = self.fan_window * 2
         self._seen_tx_order = deque(
             (ts, tid) for ts, tid in self._seen_tx_order if timedelta(0) <= (now - ts) <= retention
@@ -128,23 +182,121 @@ class GraphStore:
         self._seen_tx_ids = {tid for _, tid in self._seen_tx_order}
 
     def _prune(self, account_id: str, now: datetime):
+        """Prune activity deque outside sliding window."""
         dq = self._recent_activity[account_id]
         self._recent_activity[account_id] = deque(
             entry for entry in dq if timedelta(0) <= (now - entry[0]) <= self.fan_window
         )
 
-    # ---------- structural signal queries (used by consumer to build graph_signals) ----------
+    # ------------------------------------------------------------------------
+    # Reads / Queries used by Detection Rules & Pipeline
+    # ------------------------------------------------------------------------
 
-    def fan_in_count(self, account_id: str) -> int:
+    def has_account(self, account_id: str) -> bool:
+        """True if the account exists in the graph."""
+        return account_id in self.graph
+
+    def get_account_metadata(self, account_id: str) -> Optional[AccountNodeMetadata]:
+        """Return static metadata for an account, or None if unknown."""
+        return self._metadata.get(account_id)
+
+    def transactions_involving(
+        self,
+        account_id: str,
+        window_seconds: Optional[int] = None,
+        direction: str = "both",
+        as_of: Optional[datetime] = None,
+    ) -> List[TransactionEvent]:
+        """Incoming ('in'), outgoing ('out') or all transaction events touching the account."""
+        if not self.has_account(account_id):
+            return []
+
+        as_of_dt = _as_utc(as_of) if as_of is not None else utcnow()
+        cutoff = as_of_dt - timedelta(seconds=window_seconds) if window_seconds else None
+        result: List[TransactionEvent] = []
+
+        if direction in ("both", "out"):
+            for _s, _t, _k, data in self.graph.out_edges(account_id, keys=True, data=True):
+                if cutoff is None or data["timestamp"] >= cutoff:
+                    result.append(data["txn"])
+
+        if direction in ("both", "in"):
+            for _s, _t, _k, data in self.graph.in_edges(account_id, keys=True, data=True):
+                if cutoff is None or data["timestamp"] >= cutoff:
+                    result.append(data["txn"])
+
+        return result
+
+    def unique_incoming_sources(
+        self,
+        account_id: str,
+        window_seconds: Optional[int] = None,
+        as_of: Optional[datetime] = None,
+    ) -> Set[str]:
+        """Distinct source accounts that paid INTO this account in the window."""
+        return {e.source_account_id for e in self.transactions_involving(account_id, window_seconds, "in", as_of)}
+
+    def unique_outgoing_targets(
+        self,
+        account_id: str,
+        window_seconds: Optional[int] = None,
+        as_of: Optional[datetime] = None,
+    ) -> Set[str]:
+        """Distinct target accounts this account paid INTO in the window."""
+        return {e.target_account_id for e in self.transactions_involving(account_id, window_seconds, "out", as_of)}
+
+    def fan_in_count(
+        self,
+        account_id: str,
+        window_seconds: Optional[int] = None,
+        as_of: Optional[datetime] = None,
+    ) -> int:
+        """Number of distinct accounts sending money to this account (fan-in)."""
+        if window_seconds is not None or as_of is not None:
+            return len(self.unique_incoming_sources(account_id, window_seconds, as_of))
         return sum(1 for _, _, d in self._recent_activity[account_id] if d == "in")
 
-    def fan_out_count(self, account_id: str) -> int:
+    def fan_out_count(
+        self,
+        account_id: str,
+        window_seconds: Optional[int] = None,
+        as_of: Optional[datetime] = None,
+    ) -> int:
+        """Number of distinct accounts this account sent money to (fan-out)."""
+        if window_seconds is not None or as_of is not None:
+            return len(self.unique_outgoing_targets(account_id, window_seconds, as_of))
         return sum(1 for _, _, d in self._recent_activity[account_id] if d == "out")
 
-    def distinct_counterparties_in_window(self, account_id: str) -> set:
+    def distinct_counterparties_in_window(self, account_id: str) -> Set[str]:
+        """Return set of all distinct counterparties in active window."""
         return {cp for _, cp, _ in self._recent_activity[account_id]}
 
-    def shares_device_fingerprint(self, account_id: str) -> list[str]:
+    def get_neighborhood(
+        self,
+        account_id: str,
+        degrees: int = 1,
+        window_seconds: Optional[int] = None,
+        as_of: Optional[datetime] = None,
+    ) -> Set[str]:
+        """All accounts within `degrees` hops (BFS) of the account."""
+        if not self.has_account(account_id):
+            return set()
+
+        seen: Set[str] = set()
+        frontier = deque([(account_id, 0)])
+
+        while frontier:
+            node, depth = frontier.popleft()
+            if depth >= degrees:
+                continue
+            nbrs = set(self.graph.successors(node)) | set(self.graph.predecessors(node))
+            for nbr in nbrs:
+                if nbr not in seen and nbr != account_id:
+                    seen.add(nbr)
+                    frontier.append((nbr, depth + 1))
+        return seen
+
+    def shares_device_fingerprint(self, account_id: str) -> List[str]:
         """
         Return other accounts that have also sent transactions using any
         device fingerprint used by account_id for outgoing transactions.
@@ -158,9 +310,41 @@ class GraphStore:
         other_accounts.discard(account_id)
         return sorted(list(other_accounts))
 
-    def historical_terminal_affinity(self, account_id: str) -> list[str]:
+    def accounts_sharing_device_fingerprint(self, account_id: str) -> Set[str]:
+        """Other accounts connected to the same device_fingerprint via any edge (in or out)."""
+        if not self.has_account(account_id):
+            return set()
+        devs = set()
+        for _, _, data in self.graph.out_edges(account_id, data=True):
+            dev = data.get("device_fingerprint") or data.get("device")
+            if dev:
+                devs.add(dev)
+        for _, _, data in self.graph.in_edges(account_id, data=True):
+            dev = data.get("device_fingerprint") or data.get("device")
+            if dev:
+                devs.add(dev)
+        if not devs:
+            return set()
+        sharers: Set[str] = set()
+        for u, v, data in self.graph.edges(data=True):
+            dev = data.get("device_fingerprint") or data.get("device")
+            if dev in devs:
+                for a in (u, v):
+                    if a != account_id:
+                        sharers.add(a)
+        return sharers
+
+    def historical_terminal_affinity(self, account_id: str) -> List[str]:
+        """Terminals this account has historically cashed out at."""
         acc = self.accounts.get(account_id, {})
-        return acc.get("historical_terminal_ids", [])
+        if "historical_terminal_ids" in acc:
+            return list(acc["historical_terminal_ids"])
+        meta = self._metadata.get(account_id)
+        return list(meta.historical_terminal_ids) if meta else []
+
+    def historical_terminal_ids(self, account_id: str) -> List[str]:
+        """Alias for historical_terminal_affinity."""
+        return self.historical_terminal_affinity(account_id)
 
     def account_chain_depth(self, account_id: str, max_depth: int = 3) -> int:
         """
@@ -172,7 +356,6 @@ class GraphStore:
         def _traverse_back(node: str, depth: int) -> int:
             if depth >= max_depth:
                 return max_depth
-            # get predecessors who sent money to `node` in the active window
             preds = {cp for _, cp, direction in self._recent_activity.get(node, []) if direction == "in"}
             unvisited_preds = preds - visited
             if not unvisited_preds:
@@ -181,3 +364,88 @@ class GraphStore:
             return max(_traverse_back(p, depth + 1) for p in unvisited_preds)
 
         return _traverse_back(account_id, 0)
+
+    def trail_depth(
+        self,
+        account_id: str,
+        window_seconds: Optional[int] = None,
+        max_depth: int = 8,
+        as_of: Optional[datetime] = None,
+    ) -> int:
+        """Longest reverse chain of distinct accounts flowing INTO this account."""
+        if not self.has_account(account_id):
+            return 0
+
+        as_of_dt = _as_utc(as_of) if as_of is not None else utcnow()
+        cutoff = as_of_dt - timedelta(seconds=window_seconds) if window_seconds else None
+        visited: Dict[str, int] = {account_id: 0}
+        frontier = deque([account_id])
+        max_d = 0
+
+        while frontier:
+            node = frontier.popleft()
+            for src, _dst, _k, data in self.graph.in_edges(node, keys=True, data=True):
+                if cutoff is not None and data["timestamp"] < cutoff:
+                    continue
+                nd = visited[node] + 1
+                if nd <= max_depth and (src not in visited or visited[src] < nd):
+                    visited[src] = max(visited.get(src, 0), nd)
+                    max_d = max(max_d, nd)
+                    frontier.append(src)
+        return max_d
+
+    def edge_latency_between(self, account_id: str, direction: str = "out") -> Optional[timedelta]:
+        """Smallest time gap between a relevant inbound and the given outbound edge."""
+        if not self.has_account(account_id):
+            return None
+
+        in_times = sorted(
+            e.timestamp_utc for e in self.transactions_involving(account_id, direction="in")
+        )
+        if not in_times:
+            return None
+
+        edges = (
+            self.graph.out_edges(account_id, data=True)
+            if direction == "out"
+            else self.graph.in_edges(account_id, data=True)
+        )
+        best = None
+        for _s, _t, data in edges:
+            ts = data["timestamp"]
+            prior = [t for t in in_times if t <= ts]
+            if not prior:
+                continue
+            gap = ts - max(prior)
+            if best is None or gap < best:
+                best = gap
+        return best
+
+    def forwarded_transactions(
+        self,
+        account_id: str,
+        window_seconds: Optional[int] = None,
+        as_of: Optional[datetime] = None,
+    ) -> List[TransactionEvent]:
+        """Outgoing transactions that have at least one prior inbound edge to the account."""
+        if not self.has_account(account_id):
+            return []
+
+        as_of_dt = _as_utc(as_of) if as_of is not None else utcnow()
+        cutoff = as_of_dt - timedelta(seconds=window_seconds) if window_seconds else None
+        in_times = [
+            t.timestamp_utc
+            for t in self.transactions_involving(account_id, direction="in")
+            if cutoff is None or t.timestamp_utc >= cutoff
+        ]
+        if not in_times:
+            return []
+
+        out_events = []
+        for _s, _t, data in self.graph.out_edges(account_id, data=True):
+            ev = data["txn"]
+            if cutoff is not None and ev.timestamp_utc < cutoff:
+                continue
+            if any(t <= ev.timestamp_utc for t in in_times):
+                out_events.append(ev)
+        return out_events

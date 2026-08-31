@@ -1,4 +1,6 @@
-# Python
+# ==========================================
+# Python & Testing
+# ==========================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -8,7 +10,7 @@ dist/
 build/
 .eggs/
 
-# Virtual environments
+# Virtual Environments
 venv/
 env/
 .venv/
@@ -16,7 +18,7 @@ ENV/
 env.bak/
 venv.bak/
 
-# Testing / tooling caches
+# Testing & Tooling Caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -25,26 +27,62 @@ venv.bak/
 htmlcov/
 .hypothesis/
 
-# Environment / secrets (keep .env.example tracked)
+# ==========================================
+# Environment & Secrets
+# ==========================================
 .env
 .env.*
 !.env.example
 
-# IDE / editor
+# ==========================================
+# IDEs & Operating System
+# ==========================================
 .vscode/
 .idea/
+*.iml
 *.swp
 *.swo
 *~
 .DS_Store
-
-# OS
 Thumbs.db
 Desktop.ini
+ehthumbs.db
+ehthumbs_vista.db
 
-# Jupyter / notebooks checkpoints
+# ==========================================
+# Android & Gradle (CyberShield)
+# ==========================================
+.gradle/
+**/CyberShield/.gradle/
+**/CyberShield/build/
+**/CyberShield/app/build/
+CyberShield/.gradle/
+CyberShield/build/
+CyberShield/app/build/
+CyberShield/captures/
+CyberShield/local.properties
+local.properties
+CyberShield/.cxx/
+CyberShield/.externalNativeBuild/
+CyberShield/*.iml
+CyberShield/app/*.iml
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+*.log
+hs_err_pid*.log
+replay_pid*.log
+signing-config.json
+*.jks
+*.keystore
+
+# ==========================================
+# Data Volumes & Notebooks
+# ==========================================
 .ipynb_checkpoints/
-
-# Docker data volumes
 .kafka-data/
 .zookeeper-data/
+kafka-data/
+zookeeper-data/

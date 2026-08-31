@@ -1,0 +1,3 @@
+-dontwarn com.google.android.gms.maps.**
+-keep class com.google.maps.android.** { *; }
+-keep class com.i4c.cybershield.model.** { *; }

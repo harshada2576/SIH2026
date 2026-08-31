@@ -1,0 +1,6 @@
+# Workstream 3 (Detection + Dashboard). Kafka publish + fastapi dashboard deps
+# get added when the alert dispatcher Kafka producer and the dashboard pair's
+# app.py are wired up (integration day).
+pydantic>=1.10,<3
+networkx>=3.0
+pytest>=7.0

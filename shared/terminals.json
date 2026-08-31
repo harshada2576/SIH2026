@@ -1,0 +1,212 @@
+[
+  {
+    "terminal_id": "ATM-HDFC-Ce-001",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 28.62319,
+    "longitude": 77.211,
+    "district_pincode": "110001"
+  },
+  {
+    "terminal_id": "AEPS-BCR-002",
+    "terminal_type": "AEPS_MICRO_ATM",
+    "latitude": 28.63674,
+    "longitude": 77.223,
+    "district_pincode": "110001"
+  },
+  {
+    "terminal_id": "POS-PNB-003",
+    "terminal_type": "POS",
+    "latitude": 28.61115,
+    "longitude": 77.23232,
+    "district_pincode": "110001"
+  },
+  {
+    "terminal_id": "ATM-ICICI-Ce-004",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 28.62087,
+    "longitude": 77.2149,
+    "district_pincode": "110001"
+  },
+  {
+    "terminal_id": "AEPS-BCR-005",
+    "terminal_type": "AEPS_MICRO_ATM",
+    "latitude": 28.64675,
+    "longitude": 77.23801,
+    "district_pincode": "110001"
+  },
+  {
+    "terminal_id": "POS-SBI-006",
+    "terminal_type": "POS",
+    "latitude": 28.64038,
+    "longitude": 77.22333,
+    "district_pincode": "110001"
+  },
+  {
+    "terminal_id": "ATM-SBI-Ce-007",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 28.63471,
+    "longitude": 77.23168,
+    "district_pincode": "110001"
+  },
+  {
+    "terminal_id": "AEPS-BCR-008",
+    "terminal_type": "AEPS_MICRO_ATM",
+    "latitude": 28.63747,
+    "longitude": 77.21177,
+    "district_pincode": "110001"
+  },
+  {
+    "terminal_id": "POS-PNB-009",
+    "terminal_type": "POS",
+    "latitude": 28.63747,
+    "longitude": 77.22625,
+    "district_pincode": "110001"
+  },
+  {
+    "terminal_id": "ATM-SBI-Ce-010",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 28.64128,
+    "longitude": 77.23548,
+    "district_pincode": "110001"
+  },
+  {
+    "terminal_id": "ATM-HDFC-No-011",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 28.56245,
+    "longitude": 77.32989,
+    "district_pincode": "201301"
+  },
+  {
+    "terminal_id": "AEPS-BCR-012",
+    "terminal_type": "AEPS_MICRO_ATM",
+    "latitude": 28.57447,
+    "longitude": 77.32289,
+    "district_pincode": "201301"
+  },
+  {
+    "terminal_id": "POS-SBI-013",
+    "terminal_type": "POS",
+    "latitude": 28.55087,
+    "longitude": 77.33503,
+    "district_pincode": "201301"
+  },
+  {
+    "terminal_id": "ATM-SBI-No-014",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 28.58434,
+    "longitude": 77.33522,
+    "district_pincode": "201301"
+  },
+  {
+    "terminal_id": "AEPS-BCR-015",
+    "terminal_type": "AEPS_MICRO_ATM",
+    "latitude": 28.58322,
+    "longitude": 77.33353,
+    "district_pincode": "201301"
+  },
+  {
+    "terminal_id": "POS-HDFC-016",
+    "terminal_type": "POS",
+    "latitude": 28.56292,
+    "longitude": 77.30552,
+    "district_pincode": "201301"
+  },
+  {
+    "terminal_id": "ATM-HDFC-No-017",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 28.57194,
+    "longitude": 77.33934,
+    "district_pincode": "201301"
+  },
+  {
+    "terminal_id": "AEPS-BCR-018",
+    "terminal_type": "AEPS_MICRO_ATM",
+    "latitude": 28.57741,
+    "longitude": 77.32872,
+    "district_pincode": "201301"
+  },
+  {
+    "terminal_id": "POS-SBI-019",
+    "terminal_type": "POS",
+    "latitude": 28.56975,
+    "longitude": 77.33781,
+    "district_pincode": "201301"
+  },
+  {
+    "terminal_id": "ATM-PNB-No-020",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 28.5753,
+    "longitude": 77.31217,
+    "district_pincode": "201301"
+  },
+  {
+    "terminal_id": "ATM-PNB-Ja-021",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 26.89521,
+    "longitude": 75.80384,
+    "district_pincode": "302001"
+  },
+  {
+    "terminal_id": "AEPS-BCR-022",
+    "terminal_type": "AEPS_MICRO_ATM",
+    "latitude": 26.91629,
+    "longitude": 75.77125,
+    "district_pincode": "302001"
+  },
+  {
+    "terminal_id": "POS-ICICI-023",
+    "terminal_type": "POS",
+    "latitude": 26.89522,
+    "longitude": 75.7889,
+    "district_pincode": "302001"
+  },
+  {
+    "terminal_id": "ATM-HDFC-Ja-024",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 26.89888,
+    "longitude": 75.78829,
+    "district_pincode": "302001"
+  },
+  {
+    "terminal_id": "AEPS-BCR-025",
+    "terminal_type": "AEPS_MICRO_ATM",
+    "latitude": 26.89101,
+    "longitude": 75.78834,
+    "district_pincode": "302001"
+  },
+  {
+    "terminal_id": "POS-PNB-026",
+    "terminal_type": "POS",
+    "latitude": 26.89297,
+    "longitude": 75.77776,
+    "district_pincode": "302001"
+  },
+  {
+    "terminal_id": "ATM-PNB-Ja-027",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 26.91398,
+    "longitude": 75.79108,
+    "district_pincode": "302001"
+  },
+  {
+    "terminal_id": "AEPS-BCR-028",
+    "terminal_type": "AEPS_MICRO_ATM",
+    "latitude": 26.89621,
+    "longitude": 75.77113,
+    "district_pincode": "302001"
+  },
+  {
+    "terminal_id": "POS-ICICI-029",
+    "terminal_type": "POS",
+    "latitude": 26.90699,
+    "longitude": 75.79298,
+    "district_pincode": "302001"
+  },
+  {
+    "terminal_id": "ATM-SBI-Ja-030",
+    "terminal_type": "ATM_KIOSK",
+    "latitude": 26.9268,
+    "longitude": 75.79898,
+    "district_pincode": "302001"
+  }
+]

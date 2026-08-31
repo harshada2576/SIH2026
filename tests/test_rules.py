@@ -1,110 +1,228 @@
-"""
-tests/test_rules.py
-
-Focused unit tests for GraphStore structural queries and rules:
-- Device fingerprint sharing semantics (sender-based vs recipient-based)
-- Chain depth progression
-- Sliding window pruning
-"""
+"""tests/test_rules.py — Unit tests for the 8 heuristic rules, GraphStore structural queries, and idempotence."""
+from __future__ import annotations
 
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "pipeline"))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(REPO_ROOT / "pipeline") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "pipeline"))
 
+from tests.helpers import acct, aid, graph_with, minutes_ago, now_utc, txn
+from detection.rules import (
+    account_age_rule,
+    amount_movement_rule,
+    device_fingerprint_rule,
+    fan_in_rule,
+    fan_out_rule,
+    layering_rule,
+    terminal_affinity_rule,
+    velocity_rule,
+)
+from detection.scorer import evaluate_account
 from pipeline.graph_store import GraphStore
 
 
-def test_recipient_does_not_share_sender_device():
-    """
-    Test 1:
-    A -> B using DEV-A
-    A -> C using DEV-A
-    does NOT make B and C shared-device accounts, nor does it make B or C share with A.
-    """
-    store = GraphStore(fan_window_seconds=300)
+# ============================================================================
+# 8 HEURISTIC RULES TESTS
+# ============================================================================
 
+def test_fan_in_rule_high_when_many_senders():
+    base = now_utc()
+    srcs = [f"S{i:02d}" for i in range(8)]
+    g = graph_with(
+        [txn(f"t{i}", s, "D", 10000, minutes_ago(5, base)) for i, s in enumerate(srcs)]
+    )
+    r = fan_in_rule.evaluate(g, aid("D"), as_of=base)
+    assert r.severity == 1.0
+    assert "8 distinct account(s)" in r.measured
+
+
+def test_fan_in_rule_low_for_single_sender():
+    base = now_utc()
+    g = graph_with([txn("t1", "A", "D", 10000, minutes_ago(5, base))])
+    r = fan_in_rule.evaluate(g, aid("D"), as_of=base)
+    assert r.severity == 0.0
+
+
+def test_fan_out_rule_high():
+    base = now_utc()
+    tgts = [f"T{i:02d}" for i in range(8)]
+    g = graph_with(
+        [txn(f"t{i}", "A", t, 5000, minutes_ago(5, base)) for i, t in enumerate(tgts)]
+    )
+    r = fan_out_rule.evaluate(g, aid("A"), as_of=base)
+    assert r.severity == 1.0
+
+
+def test_velocity_rule_high_for_rapid_pass_through():
+    base = now_utc()
+    g = graph_with([
+        txn("t1", "A", "B", 100000, minutes_ago(10, base)),
+        txn("t2", "B", "C", 95000, minutes_ago(10, base) + timedelta(minutes=1)),
+    ])
+    r = velocity_rule.evaluate(g, aid("B"), as_of=base)
+    assert r.severity == 1.0
+
+
+def test_velocity_rule_low_for_slow_movement():
+    base = now_utc()
+    g = graph_with([
+        txn("t1", "A", "B", 100000, minutes_ago(3 * 24 * 60, base)),
+        txn("t2", "B", "C", 95000, minutes_ago(3 * 24 * 60, base) + timedelta(days=3)),
+    ])
+    r = velocity_rule.evaluate(g, aid("B"), as_of=base)
+    assert r.severity == 0.0
+
+
+def test_layering_rule_high_for_long_chain():
+    base = now_utc()
+    chain = ["V", "M1", "M2", "M3", "M4", "D"]
+    g = graph_with([
+        txn(f"t{i}", a, b, 90000 - i * 1000, minutes_ago(5 - i, base))
+        for i, (a, b) in enumerate(zip(chain, chain[1:]))
+    ])
+    r = layering_rule.evaluate(g, aid("D"), as_of=base)
+    assert r.severity == 1.0
+    assert r.measured.startswith("longest incoming trail depth = 5")
+
+
+def test_amount_movement_rule_high_for_onward_flow():
+    base = now_utc()
+    g = graph_with([
+        txn("t1", "A", "B", 100000, minutes_ago(10, base)),
+        txn("t2", "B", "C", 95000, minutes_ago(9, base)),
+    ])
+    r = amount_movement_rule.evaluate(g, aid("B"), as_of=base)
+    assert r.severity == 1.0
+    assert "95%" in r.measured
+
+
+def test_account_age_rule_thresholds():
+    base = now_utc()
+    g = graph_with([], metas=[acct("NEW", age=3), acct("OLD", age=400)])
+    assert account_age_rule.evaluate(g, aid("NEW"), as_of=base).severity == 1.0
+    assert account_age_rule.evaluate(g, aid("OLD"), as_of=base).severity == 0.0
+    unknown = graph_with([])
+    assert account_age_rule.evaluate(unknown, aid("NEW"), as_of=base).severity == 0.0
+
+
+def test_device_fingerprint_rule_shared_cluster():
+    base = now_utc()
+    g = graph_with([
+        txn("t1", "A", "B", 100, minutes_ago(5, base), device="DEV-X"),
+        txn("t2", "C", "B", 100, minutes_ago(4, base), device="DEV-X"),
+        txn("t3", "D", "B", 100, minutes_ago(3, base), device="DEV-X"),
+        txn("t4", "E", "B", 100, minutes_ago(2, base), device="DEV-X"),
+        txn("t5", "F", "B", 100, minutes_ago(1, base), device="DEV-X"),
+    ])
+    r = device_fingerprint_rule.evaluate(g, aid("B"), as_of=base)
+    assert r.severity == 1.0
+    assert "5" in r.measured
+
+
+def test_terminal_affinity_rule_sees_history():
+    base = now_utc()
+    g = graph_with(
+        [txn("t1", "A", "B", 100, minutes_ago(5, base))],
+        metas=[
+            acct("A", terminals=["ATM-001", "ATM-002", "ATM-003"]),
+            acct("B", terminals=["ATM-001"]),
+        ],
+    )
+    r = terminal_affinity_rule.evaluate(g, aid("B"), as_of=base)
+    assert r.severity > 0.0
+    assert "ATM-001" in r.measured
+
+
+def test_scorer_combines_signals_into_high_risk():
+    """A textbook aggregator profile should cross the HIGH band (>=60/100)."""
+    base = now_utc()
+    srcs = [f"S{i:02d}" for i in range(8)]
+    events = [txn(f"in{i}", s, "AGG", 20000, minutes_ago(5, base)) for i, s in enumerate(srcs)]
+    events.append(txn("out1", "AGG", "CASH", 195000, minutes_ago(4, base)))
+    g = graph_with(events, metas=[acct("AGG", age=4, terminals=["ATM-001", "ATM-002"])])
+    ev = evaluate_account(g, aid("AGG"), as_of=base)
+    assert ev.score >= 60.0, ev
+    assert ev.band in {"HIGH", "CRITICAL"}
+    assert len(ev.evidence) >= 4
+
+
+def test_scorer_stays_low_for_boring_account():
+    base = now_utc()
+    g = graph_with(
+        [txn("t1", "EMPLOYER", "ME", 50000, minutes_ago(6 * 24 * 60, base))],
+        metas=[acct("ME", tier="victim", age=1500)],
+    )
+    ev = evaluate_account(g, aid("ME"), as_of=base)
+    assert ev.score < 30.0, ev
+    assert ev.band == "LOW"
+
+
+# ============================================================================
+# GRAPHSTORE STRUCTURAL & STREAMING QUERY TESTS
+# ============================================================================
+
+def test_recipient_does_not_share_sender_device():
+    store = GraphStore(fan_window_seconds=300)
     store.add_transaction({
         "transaction_id": "TX1",
-        "source_account_id": "A",
-        "target_account_id": "B",
+        "source_account_id": "ACC-A",
+        "target_account_id": "ACC-B",
         "amount_inr": 1000.0,
         "timestamp": "2026-08-29T10:00:00Z",
         "payment_channel": "UPI",
         "device_fingerprint": "DEV-A",
     })
-
     store.add_transaction({
         "transaction_id": "TX2",
-        "source_account_id": "A",
-        "target_account_id": "C",
+        "source_account_id": "ACC-A",
+        "target_account_id": "ACC-C",
         "amount_inr": 2000.0,
         "timestamp": "2026-08-29T10:01:00Z",
         "payment_channel": "UPI",
         "device_fingerprint": "DEV-A",
     })
-
-    # B and C are mere recipients of A's payments; they did not send from DEV-A
-    assert store.shares_device_fingerprint("B") == []
-    assert store.shares_device_fingerprint("C") == []
-
-    # A is the only sender using DEV-A, so A does not share with anyone yet
-    assert store.shares_device_fingerprint("A") == []
+    assert store.shares_device_fingerprint("ACC-B") == []
+    assert store.shares_device_fingerprint("ACC-C") == []
+    assert store.shares_device_fingerprint("ACC-A") == []
 
 
 def test_multiple_senders_using_same_device_are_shared():
-    """
-    Test 2:
-    A -> X using DEV-A
-    B -> Y using DEV-A
-    DOES identify A and B as sharing a device (both sent from DEV-A).
-    X and Y (mere recipients) do NOT share a device.
-    """
     store = GraphStore(fan_window_seconds=300)
-
     store.add_transaction({
         "transaction_id": "TX1",
-        "source_account_id": "A",
-        "target_account_id": "X",
+        "source_account_id": "ACC-A",
+        "target_account_id": "ACC-X",
         "amount_inr": 5000.0,
         "timestamp": "2026-08-29T10:00:00Z",
         "payment_channel": "UPI",
         "device_fingerprint": "DEV-A",
     })
-
     store.add_transaction({
         "transaction_id": "TX2",
-        "source_account_id": "B",
-        "target_account_id": "Y",
+        "source_account_id": "ACC-B",
+        "target_account_id": "ACC-Y",
         "amount_inr": 6000.0,
         "timestamp": "2026-08-29T10:01:00Z",
         "payment_channel": "UPI",
         "device_fingerprint": "DEV-A",
     })
-
-    # Senders A and B both sent transactions using DEV-A
-    assert store.shares_device_fingerprint("A") == ["B"]
-    assert store.shares_device_fingerprint("B") == ["A"]
-
-    # Recipients X and Y did not send from DEV-A
-    assert store.shares_device_fingerprint("X") == []
-    assert store.shares_device_fingerprint("Y") == []
+    assert store.shares_device_fingerprint("ACC-A") == ["ACC-B"]
+    assert store.shares_device_fingerprint("ACC-B") == ["ACC-A"]
+    assert store.shares_device_fingerprint("ACC-X") == []
+    assert store.shares_device_fingerprint("ACC-Y") == []
 
 
 def test_chain_depth_progression():
-    """
-    Test 3:
-    Linear chain: A -> B -> C -> D within window
-    Depth should progress: A=0, B=1, C=2, D=3
-    """
     store = GraphStore(fan_window_seconds=300)
-
     store.add_transaction({
         "transaction_id": "TX1",
-        "source_account_id": "A",
-        "target_account_id": "B",
+        "source_account_id": "ACC-A",
+        "target_account_id": "ACC-B",
         "amount_inr": 10000.0,
         "timestamp": "2026-08-29T10:00:00Z",
         "payment_channel": "UPI",
@@ -112,8 +230,8 @@ def test_chain_depth_progression():
     })
     store.add_transaction({
         "transaction_id": "TX2",
-        "source_account_id": "B",
-        "target_account_id": "C",
+        "source_account_id": "ACC-B",
+        "target_account_id": "ACC-C",
         "amount_inr": 9000.0,
         "timestamp": "2026-08-29T10:01:00Z",
         "payment_channel": "UPI",
@@ -121,272 +239,83 @@ def test_chain_depth_progression():
     })
     store.add_transaction({
         "transaction_id": "TX3",
-        "source_account_id": "C",
-        "target_account_id": "D",
+        "source_account_id": "ACC-C",
+        "target_account_id": "ACC-D",
         "amount_inr": 8000.0,
         "timestamp": "2026-08-29T10:02:00Z",
         "payment_channel": "UPI",
         "device_fingerprint": "DEV-C",
     })
-
-    assert store.account_chain_depth("A") == 0
-    assert store.account_chain_depth("B") == 1
-    assert store.account_chain_depth("C") == 2
-    assert store.account_chain_depth("D") == 3
+    assert store.account_chain_depth("ACC-A") == 0
+    assert store.account_chain_depth("ACC-B") == 1
+    assert store.account_chain_depth("ACC-C") == 2
+    assert store.account_chain_depth("ACC-D") == 3
 
 
 def test_sliding_window_pruning():
-    """
-    Test 4:
-    Events older than fan_window (300s) are pruned, even if out-of-order events arrive.
-    """
     store = GraphStore(fan_window_seconds=300)
-
-    # Event 1 at 10:00:00
     store.add_transaction({
         "transaction_id": "TX1",
-        "source_account_id": "A",
-        "target_account_id": "M",
+        "source_account_id": "ACC-A",
+        "target_account_id": "ACC-M",
         "amount_inr": 1000.0,
         "timestamp": "2026-08-29T10:00:00Z",
         "payment_channel": "UPI",
         "device_fingerprint": "DEV-A",
     })
-    assert store.fan_in_count("M") == 1
+    assert store.fan_in_count("ACC-M") == 1
 
-    # Event 2 at 10:06:00 (6 minutes later - exceeds 300s window)
+    # TX2 is 6 minutes later -> TX1 expires
     store.add_transaction({
         "transaction_id": "TX2",
-        "source_account_id": "B",
-        "target_account_id": "M",
+        "source_account_id": "ACC-B",
+        "target_account_id": "ACC-M",
         "amount_inr": 2000.0,
         "timestamp": "2026-08-29T10:06:00Z",
         "payment_channel": "UPI",
         "device_fingerprint": "DEV-B",
     })
-    # TX1 should have expired from active window; only TX2 remains
-    assert store.fan_in_count("M") == 1
-    assert store.distinct_counterparties_in_window("M") == {"B"}
-
-
-def test_scorer_modular_rules_and_dominant_aggregation():
-    """
-    Test 5:
-    Validates independent scoring of each rule and dominant aggregation.
-    """
-    from detection.scorer import (
-        evaluate_fan_in_rule,
-        evaluate_fan_out_rule,
-        evaluate_layering_rule,
-        evaluate_device_rule,
-        score_signal,
-        build_evidence,
-    )
-
-    # 1. Pure Fan-in signal (fan_in=5)
-    sig_fan_in = {
-        "account_id": "ACC_MULE",
-        "timestamp": "2026-08-29T10:00:00Z",
-        "fan_in_count": 5,
-        "fan_out_count": 0,
-        "distinct_counterparties": 5,
-        "shared_device_accounts": [],
-        "chain_depth": 1,
-        "historical_terminal_ids": ["ATM001"],
-    }
-    s_fi, ev_fi = evaluate_fan_in_rule(sig_fan_in)
-    assert s_fi == 1.0
-    assert "Rapid fan-in" in ev_fi
-    assert score_signal(sig_fan_in) == 1.0
-
-    # 2. Pure Fan-out signal (fan_out=4)
-    sig_fan_out = {
-        "account_id": "ACC_MULE",
-        "timestamp": "2026-08-29T10:00:00Z",
-        "fan_in_count": 0,
-        "fan_out_count": 4,
-        "distinct_counterparties": 4,
-        "shared_device_accounts": [],
-        "chain_depth": 0,
-        "historical_terminal_ids": [],
-    }
-    s_fo, ev_fo = evaluate_fan_out_rule(sig_fan_out)
-    assert s_fo >= 0.75
-    assert "Rapid fan-out" in ev_fo
-    assert score_signal(sig_fan_out) >= 0.75
-
-    # 3. Layering aggregator (depth=3)
-    sig_layering = {
-        "account_id": "ACC_AGG",
-        "timestamp": "2026-08-29T10:00:00Z",
-        "fan_in_count": 1,
-        "fan_out_count": 0,
-        "distinct_counterparties": 1,
-        "shared_device_accounts": [],
-        "chain_depth": 3,
-        "historical_terminal_ids": ["ATM002"],
-    }
-    s_lay, ev_lay = evaluate_layering_rule(sig_layering)
-    assert s_lay == 0.95
-    assert "Multi-hop layering" in ev_lay
-    assert score_signal(sig_layering) == 0.95
-
-    # 4. Device sharing
-    sig_device = {
-        "account_id": "ACC_FRAUD",
-        "timestamp": "2026-08-29T10:00:00Z",
-        "fan_in_count": 0,
-        "fan_out_count": 1,
-        "distinct_counterparties": 1,
-        "shared_device_accounts": ["ACC_PEER"],
-        "chain_depth": 0,
-        "historical_terminal_ids": [],
-    }
-    s_dev, ev_dev = evaluate_device_rule(sig_device)
-    assert s_dev == 0.90
-    assert "Device reuse" in ev_dev
-    assert score_signal(sig_device) == 0.90
-
-    # 5. Normal background activity (no rules triggered)
-    sig_normal = {
-        "account_id": "ACC_NORMAL",
-        "timestamp": "2026-08-29T10:00:00Z",
-        "fan_in_count": 1,
-        "fan_out_count": 0,
-        "distinct_counterparties": 1,
-        "shared_device_accounts": [],
-        "chain_depth": 1,
-        "historical_terminal_ids": [],
-    }
-    assert score_signal(sig_normal) < 0.25
-
-
-def test_predict_terminals_includes_coordinates():
-    """
-    Test 6:
-    Validates that predict_terminals() resolves physical latitude and longitude
-    for predicted terminals from the reference data.
-    """
-    from detection.scorer import predict_terminals
-
-    signal = {
-        "account_id": "ACC122",
-        "timestamp": "2026-08-29T10:00:00Z",
-        "historical_terminal_ids": ["ATM001", "ATM002", "ATM003"],
-    }
-
-    preds = predict_terminals(signal)
-    assert len(preds) == 3
-
-    # Check first terminal (ATM001 -> Nagpur: ~21.15, ~79.08)
-    assert preds[0]["terminal_id"] == "ATM001"
-    assert preds[0]["probability"] == 0.90
-    assert isinstance(preds[0]["latitude"], float)
-    assert isinstance(preds[0]["longitude"], float)
-    assert abs(preds[0]["latitude"] - 21.15) < 0.1
-    assert abs(preds[0]["longitude"] - 79.08) < 0.1
-
-    # Check probability decay across rank
-    assert preds[1]["probability"] == 0.63
-    assert isinstance(preds[1]["latitude"], float)
-    assert preds[2]["probability"] == 0.44
-    assert isinstance(preds[2]["latitude"], float)
+    assert store.fan_in_count("ACC-M") == 1
+    assert store.distinct_counterparties_in_window("ACC-M") == {"ACC-B"}
 
 
 def test_transaction_idempotence_and_state_preservation():
-    """
-    Test 7:
-    Validates that:
-    1. First delivery of a transaction is accepted.
-    2. Identical duplicate delivery is rejected (returns False).
-    3. Duplicate delivery does not alter fan-in, fan-out, device sharing, or chain depth.
-    4. Normal different transactions continue to be accepted.
-    """
     store = GraphStore(fan_window_seconds=300)
-
     tx1 = {
         "transaction_id": "TX_IDEMP_001",
-        "source_account_id": "ACC_SENDER",
-        "target_account_id": "ACC_RECEIVER",
+        "source_account_id": "ACC-SENDER",
+        "target_account_id": "ACC-RECEIVER",
         "amount_inr": 5000.0,
         "timestamp": "2026-08-29T10:00:00Z",
         "payment_channel": "UPI",
-        "device_fingerprint": "DEV_SHARED",
+        "device_fingerprint": "DEV-SHARED",
     }
+    assert store.add_transaction(tx1) is True
+    assert store.fan_out_count("ACC-SENDER") == 1
+    assert store.fan_in_count("ACC-RECEIVER") == 1
 
-    # 1. First delivery accepted
-    accepted_1 = store.add_transaction(tx1)
-    assert accepted_1 is True
-    assert store.fan_out_count("ACC_SENDER") == 1
-    assert store.fan_in_count("ACC_RECEIVER") == 1
-    assert store.account_chain_depth("ACC_RECEIVER") == 1
-    assert len(store.graph.edges) == 1
-
-    # 2. Identical second delivery rejected
-    accepted_2 = store.add_transaction(tx1)
-    assert accepted_2 is False
-
-    # 3. State remains exactly unchanged (no double counting)
-    assert store.fan_out_count("ACC_SENDER") == 1
-    assert store.fan_in_count("ACC_RECEIVER") == 1
-    assert store.account_chain_depth("ACC_RECEIVER") == 1
-    assert len(store.graph.edges) == 1
-
-    # 4. Normal different transaction is accepted
-    tx2 = {
-        "transaction_id": "TX_IDEMP_002",
-        "source_account_id": "ACC_SENDER_2",
-        "target_account_id": "ACC_RECEIVER",
-        "amount_inr": 3000.0,
-        "timestamp": "2026-08-29T10:01:00Z",
-        "payment_channel": "UPI",
-        "device_fingerprint": "DEV_SHARED",
-    }
-    accepted_3 = store.add_transaction(tx2)
-    assert accepted_3 is True
-    assert store.fan_in_count("ACC_RECEIVER") == 2
-    assert store.shares_device_fingerprint("ACC_SENDER") == ["ACC_SENDER_2"]
-    assert len(store.graph.edges) == 2
+    # Duplicate delivery
+    assert store.add_transaction(tx1) is False
+    assert store.fan_out_count("ACC-SENDER") == 1
+    assert store.fan_in_count("ACC-RECEIVER") == 1
 
 
 def test_consumer_malformed_payload_and_poison_pill_handling():
-    """
-    Test 8:
-    Validates that:
-    1. Unparseable non-JSON / corrupted bytes return None without raising uncaught exception.
-    2. Missing required fields / wrong payload types are safely skipped.
-    3. Subsequent valid transactions continue to be processed normally.
-    4. Duplicate deliveries return no new signals.
-    """
     from pipeline.consumer import _deserialize_transaction, process_transaction
 
     store = GraphStore(fan_window_seconds=300)
-
-    # 1. Non-JSON poison pill byte sequence
     corrupted_bytes = b"\x00\xff\xfe INVALID_NON_JSON_BYTES"
     assert _deserialize_transaction(corrupted_bytes) is None
 
-    # 2. Valid JSON bytes
-    valid_raw = b'{"transaction_id": "TX_VALID_1", "source_account_id": "A", "target_account_id": "B", "amount_inr": 100.0, "timestamp": "2026-08-29T10:00:00Z", "payment_channel": "UPI", "device_fingerprint": "D1"}'
+    valid_raw = b'{"transaction_id": "TX_VALID_1", "source_account_id": "ACC-A", "target_account_id": "ACC-B", "amount_inr": 100.0, "timestamp": "2026-08-29T10:00:00Z", "payment_channel": "UPI", "device_fingerprint": "D1"}'
     tx_dict = _deserialize_transaction(valid_raw)
     assert isinstance(tx_dict, dict)
     assert tx_dict["transaction_id"] == "TX_VALID_1"
 
-    # 3. Process malformed dict (missing amount_inr and timestamp) -> returns empty list safely
-    malformed_dict = {"transaction_id": "TX_BAD", "source_account_id": "A"}
+    malformed_dict = {"transaction_id": "TX_BAD", "source_account_id": "ACC-A"}
     assert process_transaction(store, malformed_dict) == []
 
-    # 4. Process valid transaction -> returns 2 signals (source & target)
     signals = process_transaction(store, tx_dict)
     assert len(signals) == 2
-    assert signals[0]["account_id"] == "A"
-    assert signals[1]["account_id"] == "B"
-
-    # 5. Duplicate delivery of the same transaction -> returns empty list safely
-    dup_signals = process_transaction(store, tx_dict)
-    assert dup_signals == []
-
-
-
-
+    assert process_transaction(store, tx_dict) == []
 

@@ -34,4 +34,18 @@ When you close an AI chat session and open a new one tomorrow (or switch tools m
 
 ## Log
 
-*(No entries yet — first person to sit down and build starts this. One block per session, most recent at the bottom or top — pick one convention as a team and stick to it.)*
+### Aug 29, 2026 — Workstream 3: Heuristic Scorer (dash agreed to be separate)
+- What we built/changed (skeleton was 100% empty — greenfield, branch `feature/heuristic-scorer-android-dashboard`):
+  - `shared/schemas.py` initialized EXACTLY per Architecture.md §6 (4 pydantic models + PredictedTerminal). Account-id regex relaxed to `ACC-[A-Za-z0-9]+` (still the ACC-XXXXX pattern) — nothing else drifted. **SCHEMA OWNERS: review this file first; it is now the contract.**
+  - `pipeline/graph_store.py`: minimal networkx wrapper implementing the documented API the rules read (`add_transaction`, `add_account_metadata`, `get_neighborhood`, `fan_in_count`, `fan_out_count`, `unique_*`, `accounts_sharing_device_fingerprint`, `trail_depth`, `edge_latency_between`, `forwarded_transactions`, `historical_terminal_ids`). **Stand-in for WS2's live Kafka-fed store — WS2 owns/evolves; flag if API shape needs changing.**
+  - `detection/rules/*`: 8 independently-testable rules (fan_in, fan_out, velocity, layering, amount_movement, account_age, device_fingerprint, terminal_affinity) + `base.py` (RuleResult). Each returns severity 0..1; scorer multiplies by weight.
+  - `detection/scorer.py`: `WEIGHTS` sum to exactly 100 (matches brief: vel20/fan-in20/fan-out10/layer15/amount15/age5/device5/history10); bands LOW<30 / MED 30-59 / HIGH 60-79 / CRITICAL 80-100; `evaluate_account`, `predict_window` (channel-aware UPI/IMPS/AEPS/NEFT/RTGS), `reconstruct_trail` (greedy largest-leg), `analyze` → RiskAlert with evidence auto-generated from rules that fired; alert threshold ≥60.
+  - `detection/terminal_ranking.py`: `rank_terminals` → 0-100 PRIORITY per terminal (history 30 / distance 20 / time-pattern 15 / type 10 / network-assoc 15 / district 10). Framed as priority, NOT calibrated probability (schema field stays `probability` per locked contract).
+  - `detection/alert_dispatcher.py`: console stub only (no Kafka yet — per brief). Signature already takes `kafka_topic`; wiring the real producer into it is integration-day work. Reconfigures stdout to UTF-8 (₹ renders on Windows).
+  - `scripts/seed_terminals.py` → `shared/terminals.json` (30 fictional terminals, 3 fake districts, deterministic seed) — scorer loads it via `load_terminals()`.
+### Aug 30, 2026 — Frontend Mandate & Android Testing
+- Architecture Clarification: Confirmed that **CyberShield Native Android App (`CyberShield/`)** is the SOLE frontend for the project. Removed unused HTML web dashboard files (`detection/dashboard/*`).
+- Updated all documentation (`AGENTS.md`, `Must-Read/Rules.md`, `Must-Read/Architecture.md`, `Must-Read/Design.md`, `Must-Read/PRD.md`) so all agents and team members remain aligned on the single Kotlin + Jetpack Compose Android client.
+- Python backend tests: `python -m pytest` -> 24 passed (100%).
+- Android project: `CyberShield/` contains the native Kotlin Jetpack Compose app with Radar Google Maps, Investigation XAI drawer, Dispatch queue, and Auth screens.
+- Next step: Build and test CyberShield Android Kotlin app using Gradle.
