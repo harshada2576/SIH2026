@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from detection.confidence import compute_confidence
 from detection.rules import RULES
 from detection.rules.base import RuleResult
 from detection.terminal_ranking import TerminalScore, rank_terminals
@@ -28,16 +29,24 @@ log = logging.getLogger("scorer")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Rule weights sum to 100
+# Rule weights sum to 100.
+# Phase 2 (2026-09): added geo_velocity, identity_cluster, ml_anomaly and
+# rebalanced the original 8 weights downward proportionally to make room,
+# rather than letting the total exceed 100 (evaluate_account() clamps at 100
+# regardless, but an un-rebalanced table makes individual rule contributions
+# harder to reason about in the evidence panel).
 WEIGHTS: Dict[str, int] = {
-    "velocity": 20,
-    "fan_in": 20,
-    "fan_out": 10,
-    "layering": 15,
-    "amount_movement": 15,
-    "account_age": 5,
-    "device_fingerprint": 5,
-    "terminal_affinity": 10,
+    "velocity": 16,
+    "fan_in": 16,
+    "fan_out": 8,
+    "layering": 10,
+    "amount_movement": 10,
+    "account_age": 4,
+    "device_fingerprint": 4,
+    "terminal_affinity": 8,
+    "geo_velocity": 12,       # physically-impossible travel — strong, rare signal
+    "identity_cluster": 4,    # contributing signal, like device_fingerprint
+    "ml_anomaly": 8,          # unsupervised outlier score, hybrid rule+ML layer
 }
 
 RISK_BANDS: List[Tuple[int, str]] = [
@@ -236,6 +245,7 @@ def analyze(
         evidence=evidence,
         predicted_window_start=ws,
         predicted_window_end=we,
+        confidence=compute_confidence(ev),
     )
 
 

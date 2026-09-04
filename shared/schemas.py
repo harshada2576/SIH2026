@@ -268,6 +268,10 @@ class RiskAlert:
     evidence: List[str] = field(default_factory=list)
     predicted_window_start: Union[str, datetime] = field(default_factory=lambda: datetime.now(timezone.utc))
     predicted_window_end: Union[str, datetime] = field(default_factory=lambda: datetime.now(timezone.utc))
+    # ADDITIVE (Phase 2): rule-agreement + anomaly-model confidence in [0,1].
+    # Optional/None so every existing producer/consumer of RiskAlert keeps
+    # working unchanged — see detection/confidence.py.
+    confidence: Optional[float] = None
 
     def __post_init__(self):
         self.complaint_id = str(self.complaint_id)
@@ -292,6 +296,9 @@ class RiskAlert:
             for t in self.predicted_terminals
         ]
 
+        if self.confidence is not None:
+            self.confidence = max(0.0, min(1.0, float(self.confidence)))
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "RiskAlert":
         required = [
@@ -315,6 +322,7 @@ class RiskAlert:
             evidence=[str(e) for e in data["evidence"]],
             predicted_window_start=data["predicted_window_start"],
             predicted_window_end=data["predicted_window_end"],
+            confidence=data.get("confidence"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -326,6 +334,7 @@ class RiskAlert:
             "evidence": list(self.evidence),
             "predicted_window_start": _format_iso(self.predicted_window_start),
             "predicted_window_end": _format_iso(self.predicted_window_end),
+            "confidence": self.confidence,
         }
 
 
@@ -343,6 +352,11 @@ class AccountNodeMetadata:
     historical_terminal_ids: List[str] = field(default_factory=list)
     district_pincode: Optional[str] = None
     home_district_pincode: Optional[str] = None
+    # ADDITIVE (Phase 2): shared KYC identifier (PAN/phone/address hash etc.).
+    # Optional, defaults to None so every existing caller/CSV row keeps working
+    # unchanged. Powers identity_cluster_rule's "one person, many mule
+    # accounts" detection — separate signal from device_fingerprint sharing.
+    kyc_identity_id: Optional[str] = None
 
     def __post_init__(self):
         self.account_id = str(self.account_id)
@@ -367,6 +381,7 @@ class AccountNodeMetadata:
             historical_terminal_ids=data.get("historical_terminal_ids", []),
             district_pincode=data.get("district_pincode"),
             home_district_pincode=data.get("home_district_pincode") or data.get("district_pincode"),
+            kyc_identity_id=data.get("kyc_identity_id") or None,
         )
 
     def to_dict(self) -> Dict[str, Any]:

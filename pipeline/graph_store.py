@@ -81,6 +81,18 @@ class GraphStore:
         self._seen_tx_order: deque = deque()
         self._txns: Dict[str, TransactionEvent] = {}
 
+        # ADDITIVE (Phase 2): shared-KYC-identity index for identity_cluster_rule
+        # (many accounts opened under one stolen/purchased identity).
+        self._kyc_accounts: Dict[str, Set[str]] = defaultdict(set)
+
+        # ADDITIVE (Phase 2): live terminal-usage timeline for geo_velocity_rule
+        # (physically-impossible-travel between two cash-out locations). This is
+        # DELIBERATELY separate from the locked 7-field transaction schema/topic
+        # (Architecture.md §6.1) — it is fed from a distinct "terminal_usage"
+        # stream/table, never from TransactionEvent itself.
+        self._terminal_usage: Dict[str, deque] = defaultdict(deque)
+        self._terminal_usage_maxlen = 20
+
     # ------------------------------------------------------------------------
     # Reference Data Loading
     # ------------------------------------------------------------------------
@@ -95,6 +107,9 @@ class GraphStore:
             self.graph.nodes[meta.account_id]["meta"] = meta
             for k, v in meta.to_dict().items():
                 self.graph.nodes[meta.account_id][k] = v
+
+        if getattr(meta, "kyc_identity_id", None):
+            self._kyc_accounts[meta.kyc_identity_id].add(meta.account_id)
 
     def load_accounts(self, accounts: List[Dict[str, Any]]) -> None:
         """Bulk load account reference data."""
@@ -449,3 +464,58 @@ class GraphStore:
             if any(t <= ev.timestamp_utc for t in in_times):
                 out_events.append(ev)
         return out_events
+
+    # ------------------------------------------------------------------------
+    # ADDITIVE (Phase 2): KYC identity clustering — mule-ring detection.
+    # ------------------------------------------------------------------------
+
+    def accounts_sharing_kyc_identity(self, account_id: str) -> Set[str]:
+        """Other accounts registered under the same KYC identifier (PAN/phone/
+        address hash) as `account_id` — the "one person, many mule accounts"
+        signal. Independent of device_fingerprint sharing."""
+        meta = self._metadata.get(account_id)
+        kyc = getattr(meta, "kyc_identity_id", None) if meta else None
+        if not kyc:
+            return set()
+        sharers = set(self._kyc_accounts.get(kyc, set()))
+        sharers.discard(account_id)
+        return sharers
+
+    # ------------------------------------------------------------------------
+    # ADDITIVE (Phase 2): live terminal-usage timeline — geo-velocity /
+    # impossible-travel detection. Fed from a separate "terminal_usage" stream,
+    # NOT from the locked TransactionEvent schema/topic.
+    # ------------------------------------------------------------------------
+
+    def record_terminal_usage(
+        self,
+        account_id: str,
+        terminal_id: str,
+        timestamp: Union[str, datetime],
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+    ) -> None:
+        """Log one physical cash-out/card-present event for an account."""
+        ts = _as_utc(timestamp)
+        if latitude is None or longitude is None:
+            term = self.terminals.get(str(terminal_id), {})
+            latitude = latitude if latitude is not None else term.get("latitude")
+            longitude = longitude if longitude is not None else term.get("longitude")
+        dq = self._terminal_usage[account_id]
+        dq.append({
+            "terminal_id": str(terminal_id),
+            "timestamp": ts,
+            "latitude": latitude,
+            "longitude": longitude,
+        })
+        while len(dq) > self._terminal_usage_maxlen:
+            dq.popleft()
+        # keep chronological order even if events arrive slightly out of order
+        self._terminal_usage[account_id] = deque(sorted(dq, key=lambda e: e["timestamp"]))
+
+    def recent_terminal_usages(self, account_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Most recent `limit` terminal-usage events for the account, oldest first."""
+        dq = self._terminal_usage.get(account_id)
+        if not dq:
+            return []
+        return list(dq)[-limit:]
