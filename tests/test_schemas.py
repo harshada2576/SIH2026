@@ -163,10 +163,12 @@ def test_valid_risk_alert_with_coordinates():
         ],
         "predicted_window_start": "2026-08-26T19:31:46.576165",
         "predicted_window_end": "2026-08-26T20:16:46.576165",
+        "confidence": 0.82,
     }
     alert = RiskAlert.from_dict(raw)
     assert alert.complaint_id == "SYN-8cb62aea"
     assert alert.risk_score == 0.75
+    assert alert.confidence == 0.82
     assert len(alert.predicted_terminals) == 2
     assert alert.predicted_terminals[0].latitude == 21.140277
     assert alert.predicted_terminals[0].longitude == 79.112662
@@ -189,8 +191,10 @@ def test_risk_alert_roundtrip():
         evidence=["Fan-in of 5 accounts within 3 minutes"],
         predicted_window_start="2026-09-01T10:30:00Z",
         predicted_window_end="2026-09-01T11:15:00Z",
+        confidence=0.88,
     )
     assert a.risk_score <= 1.0
+    assert a.confidence == 0.88
     assert a.predicted_terminals[0].terminal_id == "ATM-SBI-ND-042"
 
 

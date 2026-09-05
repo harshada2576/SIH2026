@@ -86,3 +86,5 @@ signing-config.json
 .zookeeper-data/
 kafka-data/
 zookeeper-data/
+data/output/
+*.db
