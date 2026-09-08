@@ -54,7 +54,8 @@ def generate_accounts():
                 )
             ),
             "primary_device_fingerprint": f"DEV{i:03d}",
-            "account_region": random.choice(REGIONS)
+            "account_region": random.choice(REGIONS),
+            "kyc_identity_id": f"KYC-IND-{i:05d}"
         }
 
         accounts.append(account)
@@ -75,7 +76,8 @@ def save_accounts(accounts):
         "account_status",
         "historical_terminal_ids",
         "primary_device_fingerprint",
-        "account_region"
+        "account_region",
+        "kyc_identity_id"
     ]
 
     with open(filename, "w", newline="", encoding="utf-8") as file:

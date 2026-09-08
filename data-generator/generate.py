@@ -127,6 +127,14 @@ def validate_dataset(accounts, terminals, transactions, scenarios):
     for a in accounts:
         assert a["account_tier"] in config.ACCOUNT_TIERS, f"Invalid account_tier: {a['account_tier']}"
         assert a["account_status"] in config.ACCOUNT_STATUSES, f"Invalid account_status: {a['account_status']}"
+        assert "kyc_identity_id" in a and a["kyc_identity_id"], f"Missing kyc_identity_id on account {a['account_id']}"
+
+    kyc_counts = {}
+    for a in accounts:
+        k = a["kyc_identity_id"]
+        kyc_counts[k] = kyc_counts.get(k, 0) + 1
+    shared_clusters = [k for k, count in kyc_counts.items() if count > 1]
+    assert len(shared_clusters) > 0, "No shared KYC identity clusters found in accounts dataset"
 
     terminal_ids = {t["terminal_id"] for t in terminals}
     assert len(terminal_ids) == len(terminals), "Duplicate terminal_id detected"
@@ -183,6 +191,7 @@ def write_csvs(accounts, terminals, transactions, out_dir, shuffle_rows, rng):
         writer = csv.DictWriter(f, fieldnames=[
             "account_id", "account_tier", "account_age_days", "account_status",
             "historical_terminal_ids", "primary_device_fingerprint", "account_region",
+            "kyc_identity_id",
         ])
         writer.writeheader()
         for a in accounts:

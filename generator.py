@@ -52,7 +52,8 @@ def main():
             "account_status",
             "historical_terminal_ids",
             "primary_device_fingerprint",
-            "account_region"
+            "account_region",
+            "kyc_identity_id"
         ]
     )
     print(f"✓ Generated {len(accounts)} accounts")

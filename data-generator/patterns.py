@@ -61,6 +61,12 @@ def _apply_shared_device(accounts: list[dict], shared_fp: str) -> None:
         acc["primary_device_fingerprint"] = shared_fp
 
 
+def _apply_shared_kyc_identity(accounts: list[dict], shared_kyc: str) -> None:
+    """Overwrite the given accounts' kyc_identity_id so they share a synthetic identity cluster."""
+    for acc in accounts:
+        acc["kyc_identity_id"] = shared_kyc
+
+
 def _pick_cashout_terminal(cashout_account: dict, terminals: list[dict], rng: random.Random) -> dict:
     """Pick a plausible cash-out terminal, preferring one in the account's own district."""
     same_district = [t for t in terminals if t["district"] == cashout_account["account_region"]]
@@ -87,7 +93,9 @@ def inject_fan_in(accounts: list[dict], terminals: list[dict], scenario_id: str,
 
     involved = [aggregator["account_id"]] + [s["account_id"] for s in sources]
     shared_fp = f"DEV-SHARED-{scenario_id}"
+    shared_kyc = f"KYC-RING-{scenario_id}"
     _apply_shared_device(sources, shared_fp)
+    _apply_shared_kyc_identity(sources, shared_kyc)
 
     terminal = _pick_cashout_terminal(aggregator, terminals, rng)
     _record_terminal_history([aggregator], terminal["terminal_id"])
@@ -119,7 +127,9 @@ def inject_fan_out(accounts: list[dict], terminals: list[dict], scenario_id: str
 
     involved = [source["account_id"]] + [t["account_id"] for t in targets]
     shared_fp = f"DEV-SHARED-{scenario_id}"
+    shared_kyc = f"KYC-RING-{scenario_id}"
     _apply_shared_device(targets, shared_fp)  # the receiving mules share a device/handler
+    _apply_shared_kyc_identity(targets, shared_kyc)
 
     # Cash-out is expected at whichever target ends up holding the money —
     # pick one target as the "final" holder for the expected-terminal story.
@@ -154,7 +164,9 @@ def inject_layering(accounts: list[dict], terminals: list[dict], scenario_id: st
 
     involved = [a["account_id"] for a in chain]
     shared_fp = f"DEV-SHARED-{scenario_id}"
+    shared_kyc = f"KYC-RING-{scenario_id}"
     _apply_shared_device(chain[1:], shared_fp)  # every mule hop shares a device; victim keeps their own
+    _apply_shared_kyc_identity(chain[1:], shared_kyc)
 
     final_account = chain[-1]
     terminal = _pick_cashout_terminal(final_account, terminals, rng)
@@ -188,7 +200,9 @@ def inject_triadic(accounts: list[dict], terminals: list[dict], scenario_id: str
 
     involved = [a["account_id"] for a in chain]
     shared_fp = f"DEV-SHARED-{scenario_id}"
+    shared_kyc = f"KYC-RING-{scenario_id}"
     _apply_shared_device(chain, shared_fp)
+    _apply_shared_kyc_identity(chain, shared_kyc)
 
     # In a closed loop there's no single "final holder" — cash-out risk is
     # spread across all three; pick one to associate as the expected terminal.

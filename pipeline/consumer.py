@@ -44,6 +44,8 @@ try:
 except ImportError:
     from pipeline.graph_store import GraphStore
 
+from shared.persistence import Store
+
 from shared.kafka_utils import (
     KAFKA_BOOTSTRAP_SERVERS,
     TRANSACTIONS_TOPIC,
@@ -88,9 +90,10 @@ def build_signal(store: GraphStore, account_id: str, ts) -> dict:
     }
 
 
-def process_transaction(store: GraphStore, tx: dict) -> list[dict]:
+def process_transaction(store: GraphStore, tx: dict, db_store: Store | None = None) -> list[dict]:
     """
     Safely processes a single transaction event against GraphStore.
+    Also records the transaction in SQLite persistence if db_store is provided.
     Returns a list of generated graph signals for source and target accounts,
     or an empty list if malformed/duplicate.
     """
@@ -112,6 +115,12 @@ def process_transaction(store: GraphStore, tx: dict) -> list[dict]:
     except Exception as e:
         log.warning(f"Error updating GraphStore for transaction {tx.get('transaction_id')}: {e}")
         return []
+
+    if db_store is not None:
+        try:
+            db_store.save_transaction(tx)
+        except Exception as e:
+            log.warning(f"Failed to persist transaction {tx.get('transaction_id')} to SQLite: {e}")
 
     signals = []
     for account_id in (tx["source_account_id"], tx["target_account_id"]):
@@ -142,6 +151,7 @@ def load_reference_data(store: GraphStore, accounts_path: str | Path | None = No
                 "historical_terminal_ids": historical_terminal_ids,
                 "primary_device_fingerprint": row.get("primary_device_fingerprint", ""),
                 "account_region": row.get("account_region", ""),
+                "kyc_identity_id": row.get("kyc_identity_id", ""),
             })
 
     terminals = []
@@ -164,10 +174,19 @@ def load_reference_data(store: GraphStore, accounts_path: str | Path | None = No
 
 
 def run(accounts_path: str | Path | None = None,
-        terminals_path: str | Path | None = None):
+        terminals_path: str | Path | None = None,
+        db_store: Store | None = None):
 
     store = GraphStore(fan_window_seconds=300)
     load_reference_data(store, accounts_path, terminals_path)
+
+    own_db_store = False
+    if db_store is None:
+        try:
+            db_store = Store()
+            own_db_store = True
+        except Exception as e:
+            log.warning(f"Could not initialize SQLite Store in consumer: {e}")
 
     consumer = get_kafka_consumer(
         TRANSACTIONS_TOPIC,
@@ -204,7 +223,7 @@ def run(accounts_path: str | Path | None = None,
                 if tx is None:
                     continue  # Poison pill skipped
 
-                signals = process_transaction(store, tx)
+                signals = process_transaction(store, tx, db_store=db_store)
                 for signal_payload in signals:
                     producer.send(SIGNALS_TOPIC, value=signal_payload)
 
@@ -213,7 +232,7 @@ def run(accounts_path: str | Path | None = None,
     except Exception as e:
         log.error(f"Unexpected error in consumer loop: {e}", exc_info=True)
     finally:
-        log.info("Closing Kafka producer and consumer resources...")
+        log.info("Closing Kafka producer, consumer, and SQLite persistence resources...")
         try:
             producer.flush(timeout=5)
             producer.close(timeout=5)
@@ -223,6 +242,11 @@ def run(accounts_path: str | Path | None = None,
             consumer.close(autocommit=True)
         except Exception as e:
             log.warning(f"Error closing consumer: {e}")
+        if own_db_store and db_store is not None:
+            try:
+                db_store.close()
+            except Exception as e:
+                log.warning(f"Error closing db_store: {e}")
         log.info("Consumer shutdown complete.")
 
 

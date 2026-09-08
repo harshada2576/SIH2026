@@ -41,6 +41,11 @@ def make_device_fingerprint(rng: random.Random) -> str:
     return "DEV-" + hashlib.sha1(str(rng.random()).encode()).hexdigest()[:10].upper()
 
 
+def make_kyc_identity_id(rng: random.Random) -> str:
+    """Generate one synthetic KYC identity hash, drawn from the seeded rng."""
+    return "KYC-IND-" + hashlib.sha1(str(rng.random()).encode()).hexdigest()[:10].upper()
+
+
 def make_transaction_id(rng: random.Random) -> str:
     """Generate a synthetic transaction ID, drawn from the seeded rng (not the bare random module)."""
     return f"TXN-{rng.getrandbits(32):08x}"
@@ -50,9 +55,22 @@ def generate_accounts(num_accounts: int, rng: random.Random) -> list[dict]:
     """Create the pool of synthetic accounts, all initially tagged 'legit'.
 
     patterns.py overwrites `account_tier` (and may overwrite
-    `primary_device_fingerprint`) for whichever accounts it pulls into a
+    `primary_device_fingerprint` or `kyc_identity_id`) for whichever accounts it pulls into a
     fraud scenario, so this function's output is the "before" state.
     """
+    kyc_pool = []
+    while len(kyc_pool) < num_accounts:
+        k_id = make_kyc_identity_id(rng)
+        r = rng.random()
+        if r < 0.85 or len(kyc_pool) + 1 == num_accounts:
+            kyc_pool.append(k_id)
+        elif r < 0.95 or len(kyc_pool) + 2 == num_accounts:
+            kyc_pool.extend([k_id, k_id])
+        else:
+            kyc_pool.extend([k_id, k_id, k_id])
+    kyc_pool = kyc_pool[:num_accounts]
+    rng.shuffle(kyc_pool)
+
     accounts = []
     for i in range(1, num_accounts + 1):
         account_id = f"ACC-{i:05d}"
@@ -64,6 +82,7 @@ def generate_accounts(num_accounts: int, rng: random.Random) -> list[dict]:
             "historical_terminal_ids": [],  # filled in once cash-out history is known
             "primary_device_fingerprint": make_device_fingerprint(rng),
             "account_region": rng.choice(config.ACCOUNT_REGIONS),
+            "kyc_identity_id": kyc_pool[i - 1],
         })
     return accounts
 
