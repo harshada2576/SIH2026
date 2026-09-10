@@ -439,3 +439,335 @@ class TerminalNode:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+# ============================================================================
+# 5. OPERATIONAL DEMO & INVESTIGATION SCHEMAS (SIH26184 Additions)
+# ============================================================================
+
+class CaseLifecycleState:
+    """Standardized case lifecycle states for SIH26184."""
+    OBSERVED = "OBSERVED"
+    SUSPICIOUS = "SUSPICIOUS"
+    PREDICTED = "PREDICTED"
+    PRE_COMPLAINT_INTERVENTION = "PRE_COMPLAINT_INTERVENTION"
+    CASHOUT_ATTEMPT_DETECTED = "CASHOUT_ATTEMPT_DETECTED"
+    POST_COMPLAINT_ESCALATED = "POST_COMPLAINT_ESCALATED"
+    RESOLVED = "RESOLVED"
+
+
+@dataclass
+class SelectiveFundProtection:
+    """Details of selective fund hold targeting recent suspicious amounts."""
+
+    account_id: str
+    existing_balance: float
+    suspicious_amount: float
+    protected_amount: float
+    source_transaction_id: str
+    chain_reference: str
+    reason: str
+    case_id: str = ""
+    intervention_type: str = "PROVISIONAL_HOLD"  # PROVISIONAL_HOLD | SELECTIVE_FREEZE | FULL_FREEZE
+    status: str = "ACTIVE"                       # ACTIVE | RELEASED | ESCALATED
+    timestamp: Union[str, datetime] = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def __post_init__(self):
+        self.account_id = str(self.account_id)
+        self.existing_balance = float(self.existing_balance)
+        self.suspicious_amount = float(self.suspicious_amount)
+        self.protected_amount = float(self.protected_amount)
+        self.source_transaction_id = str(self.source_transaction_id)
+        self.chain_reference = str(self.chain_reference)
+        self.reason = str(self.reason)
+        self.case_id = str(self.case_id)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "case_id": self.case_id,
+            "account_id": self.account_id,
+            "existing_balance": self.existing_balance,
+            "suspicious_amount": self.suspicious_amount,
+            "protected_amount": self.protected_amount,
+            "source_transaction_id": self.source_transaction_id,
+            "chain_reference": self.chain_reference,
+            "reason": self.reason,
+            "intervention_type": self.intervention_type,
+            "status": self.status,
+            "timestamp": _format_iso(self.timestamp),
+        }
+
+
+@dataclass
+class TerminalBlockRequest:
+    """Mock request to block cash-out withdrawals at a specific physical terminal."""
+
+    terminal_id: str
+    case_id: str
+    reason: str = "PREDICTED_CASH_EGRESS"
+    action: str = "BLOCK_WITHDRAWAL"
+    valid_from: Union[str, datetime] = field(default_factory=lambda: datetime.now(timezone.utc))
+    valid_until: Union[str, datetime] = field(default_factory=lambda: datetime.now(timezone.utc))
+    account_id: Optional[str] = None
+    status: str = "REQUESTED"  # REQUESTED | ACTIVE | EXPIRED | LIFTED
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "terminal_id": self.terminal_id,
+            "case_id": self.case_id,
+            "reason": self.reason,
+            "action": self.action,
+            "valid_from": _format_iso(self.valid_from),
+            "valid_until": _format_iso(self.valid_until),
+            "account_id": self.account_id,
+            "status": self.status,
+        }
+
+
+@dataclass
+class WithdrawalAttemptEvent:
+    """Synthetic cash-out attempt event at a physical ATM / terminal."""
+
+    attempt_id: str
+    terminal_id: str
+    account_id: str
+    amount_inr: float
+    timestamp: Union[str, datetime] = field(default_factory=lambda: datetime.now(timezone.utc))
+    correlated_case_id: Optional[str] = None
+    is_blocked: bool = False
+    action_taken: str = "MONITORED"  # BLOCKED | FLAGGED | INTERCEPTED | ALLOWED
+    distance_to_predicted_km: Optional[float] = None
+    nearby_terminals: List[Dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "attempt_id": self.attempt_id,
+            "terminal_id": self.terminal_id,
+            "account_id": self.account_id,
+            "amount_inr": self.amount_inr,
+            "timestamp": _format_iso(self.timestamp),
+            "correlated_case_id": self.correlated_case_id,
+            "is_blocked": self.is_blocked,
+            "action_taken": self.action_taken,
+            "distance_to_predicted_km": self.distance_to_predicted_km,
+            "nearby_terminals": self.nearby_terminals,
+        }
+
+
+@dataclass
+class MoneyTrailLeg:
+    """Structured hop in a money laundering chain."""
+
+    hop_index: int
+    source_account_id: str
+    target_account_id: str
+    amount_inr: float
+    timestamp: str
+    payment_channel: str
+    direction: str = "in"
+    source_tier: str = "victim"
+    target_tier: str = "mule"
+    suspicious_flags: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class CaseRecord:
+    """Unified investigation case model spanning pre/post complaint lifecycle."""
+
+    case_id: str
+    flagged_account_id: str
+    state: str = CaseLifecycleState.PRE_COMPLAINT_INTERVENTION
+    risk_score: float = 0.0
+    confidence: float = 0.0
+    band: str = "HIGH"
+    suspicious_amount: float = 0.0
+    protected_amount: float = 0.0
+    existing_balance: float = 0.0
+    money_trail: List[MoneyTrailLeg] = field(default_factory=list)
+    predicted_terminals: List[PredictedTerminal] = field(default_factory=list)
+    predicted_window_start: str = ""
+    predicted_window_end: str = ""
+    evidence: List[str] = field(default_factory=list)
+    bank_hold_status: str = "NONE"       # NONE | ACTIVE | PROVISIONAL | FULL_FREEZE
+    terminal_block_status: str = "NONE"  # NONE | REQUESTED | ACTIVE
+    lea_notification_status: str = "NONE"# NONE | SENT | DISPATCHED
+    withdrawal_attempts: List[Dict[str, Any]] = field(default_factory=list)
+    complaint_id: Optional[str] = None
+    escalation_level: int = 1
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "case_id": self.case_id,
+            "flagged_account_id": self.flagged_account_id,
+            "state": self.state,
+            "risk_score": self.risk_score,
+            "confidence": self.confidence,
+            "band": self.band,
+            "suspicious_amount": self.suspicious_amount,
+            "protected_amount": self.protected_amount,
+            "existing_balance": self.existing_balance,
+            "money_trail": [t.to_dict() if hasattr(t, "to_dict") else t for t in self.money_trail],
+            "predicted_terminals": [t.to_dict() if hasattr(t, "to_dict") else t for t in self.predicted_terminals],
+            "predicted_window_start": self.predicted_window_start,
+            "predicted_window_end": self.predicted_window_end,
+            "evidence": list(self.evidence),
+            "bank_hold_status": self.bank_hold_status,
+            "terminal_block_status": self.terminal_block_status,
+            "lea_notification_status": self.lea_notification_status,
+            "withdrawal_attempts": list(self.withdrawal_attempts),
+            "complaint_id": self.complaint_id,
+            "escalation_level": self.escalation_level,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+# ============================================================================
+# 8. CONFIRMATION & TRANSACTION CONTROL (Part 1 - SIH26184)
+# ============================================================================
+
+class ConfirmationStatus:
+    """Explicit confirmation states for marked / unusual transfers."""
+
+    PENDING_CONFIRMATION = "PENDING_CONFIRMATION"
+    CONFIRMED_LEGITIMATE = "CONFIRMED_LEGITIMATE"
+    CONFIRMED_FRAUD = "CONFIRMED_FRAUD"
+    NO_RESPONSE = "NO_RESPONSE"
+    EXPIRED = "EXPIRED"
+
+
+class TransactionChannel:
+    """Standard categorized transaction channels."""
+
+    ONLINE_TRANSFER = "ONLINE_TRANSFER"
+    CASH_WITHDRAWAL = "CASH_WITHDRAWAL"
+
+    @classmethod
+    def classify(cls, channel_name: str) -> str:
+        """Classify specific payment channel string into standard channel category."""
+        clean = str(channel_name).upper().strip()
+        if clean in {"ATM", "ATM_CASH_OUT", "AEPS_CASH_OUT", "CASH_WITHDRAWAL", "MICRO_ATM", "POS_CASH", "BRANCH_CASH"}:
+            return cls.CASH_WITHDRAWAL
+        return cls.ONLINE_TRANSFER
+
+
+class ControlAction:
+    """Transaction control policy decisions."""
+
+    ALLOW = "ALLOW"
+    MONITOR = "MONITOR"
+    RESTRICT = "RESTRICT"
+    FREEZE = "FREEZE"
+
+
+@dataclass
+class TransactionControlDecision:
+    """Actionable decision returned by the transaction control engine."""
+
+    transaction_id: str
+    account_id: str
+    channel: str
+    amount_inr: float
+    action: str  # ALLOW | MONITOR | RESTRICT | FREEZE
+    allowed: bool
+    reason: str
+    held_amount: float = 0.0
+    available_balance: float = 0.0
+    correlated_case_id: Optional[str] = None
+    confirmation_id: Optional[str] = None
+    timestamp: Union[str, datetime] = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "transaction_id": self.transaction_id,
+            "account_id": self.account_id,
+            "channel": self.channel,
+            "amount_inr": self.amount_inr,
+            "action": self.action,
+            "allowed": self.allowed,
+            "reason": self.reason,
+            "held_amount": self.held_amount,
+            "available_balance": self.available_balance,
+            "correlated_case_id": self.correlated_case_id,
+            "confirmation_id": self.confirmation_id,
+            "timestamp": _format_iso(self.timestamp),
+        }
+
+
+@dataclass
+class ConfirmationRecord:
+    """Customer confirmation lifecycle record for unusual/high-value transactions."""
+
+    confirmation_id: str
+    transaction_id: str
+    originating_account_id: str
+    destination_account_id: str
+    amount_inr: float
+    status: str = ConfirmationStatus.PENDING_CONFIRMATION
+    requested_at: Union[str, datetime] = field(default_factory=lambda: datetime.now(timezone.utc))
+    responded_at: Optional[Union[str, datetime]] = None
+    expires_at: Optional[Union[str, datetime]] = None
+    outcome: Optional[str] = None
+    case_id: Optional[str] = None
+    intervention_state: str = "PROVISIONAL_MONITORING"
+    downstream_transaction_ids: List[str] = field(default_factory=list)
+    notes: str = ""
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "confirmation_id": self.confirmation_id,
+            "transaction_id": self.transaction_id,
+            "originating_account_id": self.originating_account_id,
+            "destination_account_id": self.destination_account_id,
+            "amount_inr": self.amount_inr,
+            "status": self.status,
+            "requested_at": _format_iso(self.requested_at),
+            "responded_at": _format_iso(self.responded_at) if self.responded_at else None,
+            "expires_at": _format_iso(self.expires_at) if self.expires_at else None,
+            "outcome": self.outcome,
+            "case_id": self.case_id,
+            "intervention_state": self.intervention_state,
+            "downstream_transaction_ids": list(self.downstream_transaction_ids),
+            "notes": self.notes,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+@dataclass
+class RecoveryWorkflowRecord:
+    """Actionable recovery and fund recall workflow generated upon confirmed fraud."""
+
+    workflow_id: str
+    case_id: str
+    originating_transaction_id: str
+    fraud_amount: float
+    recovered_or_held_amount: float
+    affected_accounts: List[str] = field(default_factory=list)
+    action_items: List[Dict[str, Any]] = field(default_factory=list)
+    status: str = "INITIATED"  # INITIATED | IN_PROGRESS | COMPLETED
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "workflow_id": self.workflow_id,
+            "case_id": self.case_id,
+            "originating_transaction_id": self.originating_transaction_id,
+            "fraud_amount": self.fraud_amount,
+            "recovered_or_held_amount": self.recovered_or_held_amount,
+            "affected_accounts": list(self.affected_accounts),
+            "action_items": list(self.action_items),
+            "status": self.status,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+

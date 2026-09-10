@@ -11,6 +11,7 @@ import csv
 import json
 import logging
 import os
+import math
 import sys
 import uuid
 from dataclasses import dataclass, field
@@ -27,7 +28,17 @@ from detection.rules import RULES
 from detection.rules.base import RuleResult
 from detection.terminal_ranking import TerminalScore, rank_terminals
 from pipeline.graph_store import GraphStore, utcnow, _as_utc
-from shared.schemas import PredictedTerminal, RiskAlert, TerminalNode
+from shared.schemas import (
+    CaseLifecycleState,
+    CaseRecord,
+    MoneyTrailLeg,
+    PredictedTerminal,
+    RiskAlert,
+    SelectiveFundProtection,
+    TerminalBlockRequest,
+    TerminalNode,
+    WithdrawalAttemptEvent,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("scorer")
@@ -252,6 +263,142 @@ def analyze(
         predicted_window_end=we,
         confidence=compute_confidence(ev),
     )
+
+
+def build_investigation_case(
+    graph: GraphStore,
+    account_id: str,
+    alert: Optional[RiskAlert] = None,
+    terminals: Optional[List[TerminalNode]] = None,
+    as_of: Optional[datetime] = None,
+    complaint_id: Optional[str] = None,
+) -> CaseRecord:
+    """Build a rich, structured investigation case for CyberShield and persistence."""
+    if alert is None:
+        term_list = terminals
+        if term_list is None and graph.terminals:
+            term_list = [TerminalNode.from_dict(t) for t in graph.terminals.values()]
+        alert = analyze(graph, account_id, terminals=term_list, as_of=as_of, notify_threshold=0)
+
+    funds = graph.compute_account_funds(account_id, as_of=as_of)
+    trail_legs = graph.reconstruct_detailed_chain(account_id, as_of=as_of)
+
+    ev = evaluate_account(graph, account_id, as_of=as_of)
+    case_id = f"CASE-{alert.complaint_id}" if alert and alert.complaint_id else f"CASE-{uuid.uuid4().hex[:8]}"
+
+    state = CaseLifecycleState.POST_COMPLAINT_ESCALATED if complaint_id else CaseLifecycleState.PRE_COMPLAINT_INTERVENTION
+
+    return CaseRecord(
+        case_id=case_id,
+        flagged_account_id=account_id,
+        state=state,
+        risk_score=alert.risk_score if alert else round(ev.score / 100.0, 3),
+        confidence=alert.confidence if alert and alert.confidence is not None else compute_confidence(ev),
+        band=ev.band,
+        suspicious_amount=funds["suspicious_amount"],
+        protected_amount=funds["protected_amount"],
+        existing_balance=funds["existing_balance"],
+        money_trail=trail_legs,
+        predicted_terminals=alert.predicted_terminals if alert else [],
+        predicted_window_start=_as_utc(alert.predicted_window_start).isoformat() if alert else utcnow().isoformat(),
+        predicted_window_end=_as_utc(alert.predicted_window_end).isoformat() if alert else (utcnow() + timedelta(minutes=45)).isoformat(),
+        evidence=alert.evidence if alert else list(ev.evidence),
+        bank_hold_status="ACTIVE" if ev.score >= ALERT_THRESHOLD else "NONE",
+        terminal_block_status="REQUESTED" if ev.score >= ALERT_THRESHOLD else "NONE",
+        lea_notification_status="SENT" if ev.score >= ALERT_THRESHOLD else "NONE",
+        complaint_id=complaint_id,
+    )
+
+
+def correlate_withdrawal_attempt(
+    graph: GraphStore,
+    attempt: WithdrawalAttemptEvent,
+    active_cases: Optional[List[CaseRecord]] = None,
+) -> Tuple[Optional[CaseRecord], Dict[str, Any]]:
+    """Correlate an attempted cash-out withdrawal event with active cases and predicted terminals."""
+    matched_case: Optional[CaseRecord] = None
+    distance_km: Optional[float] = None
+    terminal_matched = False
+
+    active_cases = active_cases or []
+
+    for c in active_cases:
+        # Check if attempt account is the flagged account or part of the money trail
+        accounts_in_case = {c.flagged_account_id}
+        for leg in c.money_trail:
+            accounts_in_case.add(leg.source_account_id)
+            accounts_in_case.add(leg.target_account_id)
+
+        if attempt.account_id in accounts_in_case:
+            matched_case = c
+            # Check terminal match or proximity
+            for pred in c.predicted_terminals:
+                if pred.terminal_id == attempt.terminal_id:
+                    terminal_matched = True
+                    distance_km = 0.0
+                    break
+                elif pred.latitude is not None and pred.longitude is not None:
+                    # Check distance from predicted terminal
+                    term_node = graph.terminals.get(attempt.terminal_id, {})
+                    if term_node.get("latitude") is not None and term_node.get("longitude") is not None:
+                        t_lat, t_lon = float(term_node["latitude"]), float(term_node["longitude"])
+                        dlat = math.radians(t_lat - pred.latitude)
+                        dlon = math.radians(t_lon - pred.longitude)
+                        a = math.sin(dlat / 2)**2 + math.cos(math.radians(pred.latitude)) * math.cos(math.radians(t_lat)) * math.sin(dlon / 2)**2
+                        dist = 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+                        if distance_km is None or dist < distance_km:
+                            distance_km = round(dist, 2)
+            break
+
+    # Get nearby locations/terminals around the attempted terminal
+    nearby = graph.find_nearby_terminals(attempt.terminal_id, radius_km=5.0)
+    attempt.nearby_terminals = nearby
+    attempt.distance_to_predicted_km = distance_km
+
+    # Check recurring activity for this account at this terminal
+    recurrence = graph.record_account_terminal_activity(attempt.account_id, attempt.terminal_id, attempt.timestamp)
+
+    if matched_case:
+        attempt.correlated_case_id = matched_case.case_id
+        # Update matched case state to CASHOUT_ATTEMPT_DETECTED if currently in PRE_COMPLAINT_INTERVENTION
+        if matched_case.state == CaseLifecycleState.PRE_COMPLAINT_INTERVENTION:
+            matched_case.state = CaseLifecycleState.CASHOUT_ATTEMPT_DETECTED
+        matched_case.withdrawal_attempts.append(attempt.to_dict())
+        matched_case.updated_at = utcnow().isoformat()
+
+        # If terminal block is active or requested, cashout is BLOCKED/INTERCEPTED
+        if matched_case.terminal_block_status in ("REQUESTED", "ACTIVE"):
+            attempt.is_blocked = True
+            attempt.action_taken = "BLOCKED"
+        else:
+            attempt.action_taken = "FLAGGED"
+    else:
+        attempt.action_taken = "MONITORED"
+
+    correlation_summary = {
+        "correlated": matched_case is not None,
+        "case_id": matched_case.case_id if matched_case else None,
+        "terminal_matched": terminal_matched,
+        "distance_to_predicted_km": distance_km,
+        "action_taken": attempt.action_taken,
+        "is_blocked": attempt.is_blocked,
+        "recurrence": recurrence,
+        "nearby_terminals_count": len(nearby),
+    }
+
+    return matched_case, correlation_summary
+
+
+def evaluate_repeated_targeting(
+    graph: GraphStore,
+    account_id: str,
+    terminal_id: str,
+    timestamp: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """Evaluate and escalate risk for repeated targeting of the same physical ATM."""
+    ts = timestamp or utcnow()
+    return graph.record_account_terminal_activity(account_id, terminal_id, ts)
+
 
 
 # ============================================================================

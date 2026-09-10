@@ -24,6 +24,8 @@ from urllib.parse import urlparse
 UNITS = ["Cyber Cell - District Alpha", "Cyber Cell - District Bravo", "State Cyber Wing"]
 
 _ALERTS: list = []
+_COMPLAINTS: list = []
+_DISPATCHES: list = []
 _counter = [0]
 
 
@@ -53,26 +55,65 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         if parts == ["alerts"]:
             self._send_json(200, {"alerts": _ALERTS})
+        elif parts == ["complaints"]:
+            self._send_json(200, {"complaints": _COMPLAINTS})
+        elif parts == ["dispatches"]:
+            self._send_json(200, {"dispatches": _DISPATCHES})
         else:
             self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
+        body = self._read_body()
+
         if parts == ["alerts"]:
-            body = self._read_body()
             _counter[0] += 1
             case_number = f"I4C-{datetime.now(timezone.utc).year}-{_counter[0]:06d}"
             unit = UNITS[_counter[0] % len(UNITS)]
+            is_pre = body.get("pre_complaint", True)
+            status = "PRE_COMPLAINT_ACKNOWLEDGED" if is_pre else "POST_COMPLAINT_ESCALATED"
             record = {
                 "case_number": case_number,
                 "received_at": datetime.now(timezone.utc).isoformat(),
-                "status": "ACKNOWLEDGED",
+                "status": status,
                 "assigned_unit": unit,
                 "alert": body,
             }
             _ALERTS.append(record)
-            print(f"[NCRP/I4C] Alert {body.get('complaint_id', '?')} acknowledged as "
-                  f"{case_number}, assigned to {unit}")
+            print(f"[NCRP/I4C] Alert {body.get('complaint_id', body.get('case_id', '?'))} acknowledged as "
+                  f"{case_number} ({status}), assigned to {unit}")
+            self._send_json(200, record)
+        elif parts == ["complaints"]:
+            _counter[0] += 1
+            ncrp_id = body.get("complaint_id", f"NCRP-{datetime.now(timezone.utc).year}-{990000 + _counter[0]}")
+            unit = body.get("assigned_unit", UNITS[_counter[0] % len(UNITS)])
+            record = {
+                "ncrp_id": ncrp_id,
+                "case_number": f"I4C-{datetime.now(timezone.utc).year}-{_counter[0]:06d}",
+                "victim_account": body.get("victim_account", "ACC-VICTIM"),
+                "reported_loss": body.get("reported_loss", "₹1,00,000"),
+                "associated_case_id": body.get("case_id"),
+                "status": "COMPLAINT_ESCALATED",
+                "assigned_unit": unit,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            _COMPLAINTS.append(record)
+            print(f"[NCRP/1930] Formal Victim Complaint Filed: {ncrp_id} | Loss: {record['reported_loss']} -> Escalated to {unit}")
+            self._send_json(200, record)
+        elif parts == ["dispatches"]:
+            dispatch_id = f"DISP-{len(_DISPATCHES) + 1:04d}"
+            record = {
+                "dispatch_id": dispatch_id,
+                "ncrp_id": body.get("ncrp_id", ""),
+                "case_id": body.get("case_id", ""),
+                "terminal_id": body.get("terminal_id", ""),
+                "target_unit": body.get("target_unit", "Sector 20 Police Patrol Unit"),
+                "action": body.get("action", "FIELD_INTERCEPTION_DISPATCH"),
+                "status": "EN_ROUTE",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            _DISPATCHES.append(record)
+            print(f"[LEA_DISPATCH] Unit {record['target_unit']} DISPATCHED to Terminal {record['terminal_id']} for Case {record['case_id']}")
             self._send_json(200, record)
         else:
             self._send_json(404, {"error": "not found"})
@@ -86,3 +127,4 @@ def run(port: int = 8002) -> None:
 
 if __name__ == "__main__":
     run(int(sys.argv[1]) if len(sys.argv) > 1 else 8002)
+

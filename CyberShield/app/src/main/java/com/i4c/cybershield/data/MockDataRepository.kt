@@ -243,6 +243,98 @@ object MockDataRepository {
         )
     )
 
+    // ─── Detailed Investigation Case (SIH26184) ──────────────────────
+    val primaryDetailedHops = listOf(
+        DetailedTrailHop(
+            hopNumber = 1,
+            fromAccount = "ACC-VICTIM-01",
+            toAccount = "ACC-MULE-A44",
+            amount = "₹1,00,000",
+            timestamp = "10:14:22 AM",
+            channel = "IMPS",
+            sourceTier = "Victim Account",
+            targetTier = "Layer-1 Mule",
+            flags = listOf("Sudden Outflow")
+        ),
+        DetailedTrailHop(
+            hopNumber = 2,
+            fromAccount = "ACC-MULE-A44",
+            toAccount = "ACC-MULE-B89",
+            amount = "₹96,000",
+            timestamp = "10:16:05 AM",
+            channel = "UPI",
+            sourceTier = "Layer-1 Mule",
+            targetTier = "Layer-2 Mule",
+            flags = listOf("Shared Device Fingerprint", "Rapid Forward <2m")
+        ),
+        DetailedTrailHop(
+            hopNumber = 3,
+            fromAccount = "ACC-MULE-B89",
+            toAccount = "ACC-AGG-03",
+            amount = "₹92,000",
+            timestamp = "10:18:40 AM",
+            channel = "UPI",
+            sourceTier = "Layer-2 Mule",
+            targetTier = "Aggregator Node",
+            flags = listOf("Shared KYC Ring", "Layering Depth 3")
+        )
+    )
+
+    val primaryNearbyTerminals = listOf(
+        NearbyTerminal(
+            id = "AEPS-PM-ND-118",
+            address = "Shop 12, Atta Market, Sector 18 (0.21 km)",
+            distanceKm = 0.21,
+            type = TerminalType.AEPS_MICRO_ATM
+        ),
+        NearbyTerminal(
+            id = "ATM-HDFC-ND-087",
+            address = "DLF Mall of India, Sector 18 (0.34 km)",
+            distanceKm = 0.34,
+            type = TerminalType.BANK_ATM
+        ),
+        NearbyTerminal(
+            id = "ATM-ICICI-ND-063",
+            address = "Wave Silver Tower, Sector 18 (0.45 km)",
+            distanceKm = 0.45,
+            type = TerminalType.BANK_ATM
+        )
+    )
+
+    val primaryRecurrence = TerminalRecurrence(
+        terminalId = "ATM-SBI-ND-042",
+        accountTarget = "ACC-AGG-03",
+        attemptsCount = 3,
+        escalationState = "PERSISTENT_TERMINAL_RISK",
+        riskMultiplier = 1.5
+    )
+
+    val primaryInvestigationCase = InvestigationCase(
+        caseId = "CASE-ALERT-1732",
+        flaggedAccount = "ACC-AGG-03",
+        lifecycle = CaseLifecycle.PRE_COMPLAINT_INTERVENTION,
+        riskScorePercent = 91,
+        confidencePercent = 87,
+        suspiciousAmount = "₹92,000",
+        targetTerminal = terminalMarkers[0],
+        predictedWindow = "10:30 AM – 11:15 AM",
+        funds = SelectiveFundBreakdown(
+            existingBalance = "₹20,000",
+            suspiciousAmount = "₹1,00,000",
+            protectedAmount = "₹92,000",
+            sourceTxn = "TXN-SCENARIO-03",
+            holdReason = "Selective provisional hold on recent suspicious chain funds",
+            isPreComplaint = true
+        ),
+        trailHops = primaryDetailedHops,
+        xaiBreakdown = primaryRiskBreakdown,
+        nearbyTerminals = primaryNearbyTerminals,
+        recurrence = primaryRecurrence,
+        bankHoldActive = true,
+        atmBlockRequested = true,
+        leaNotificationSent = true
+    )
+
     // ─── Dispatch Summary Cards ────────────────────────────────────────
     val dispatchSummaries: List<DispatchSummary>
         get() = listOf(

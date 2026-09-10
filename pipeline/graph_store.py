@@ -12,9 +12,10 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Union
 
+import math
 import networkx as nx
 
-from shared.schemas import AccountNodeMetadata, TransactionEvent, ValidationError
+from shared.schemas import AccountNodeMetadata, MoneyTrailLeg, TransactionEvent, ValidationError
 
 log = logging.getLogger("graph_store")
 
@@ -519,3 +520,265 @@ class GraphStore:
         if not dq:
             return []
         return list(dq)[-limit:]
+
+    # ------------------------------------------------------------------------
+    # ADDITIVE (SIH26184): Detailed Money Trail, Selective Funds, Spatial Context
+    # ------------------------------------------------------------------------
+
+    def reconstruct_detailed_chain(
+        self,
+        account_id: str,
+        max_hops: int = 8,
+        as_of: Optional[datetime] = None,
+    ) -> List[MoneyTrailLeg]:
+        """Reconstruct detailed chronological money trail walking backward from aggregator/flagged node."""
+        if not self.has_account(account_id):
+            return []
+
+        legs: List[MoneyTrailLeg] = []
+        cur = account_id
+        visited: Set[str] = {cur}
+
+        for hop in range(1, max_hops + 1):
+            incoming = self.transactions_involving(cur, direction="in", as_of=as_of)
+            if not incoming:
+                break
+            # Pick largest incoming transaction leg
+            leg_tx = max(incoming, key=lambda e: e.amount_inr)
+            src = leg_tx.source_account_id
+            if src in visited:
+                break
+            visited.add(src)
+
+            src_meta = self.get_account_metadata(src)
+            tgt_meta = self.get_account_metadata(cur)
+            src_tier = src_meta.account_tier if src_meta else "victim"
+            tgt_tier = tgt_meta.account_tier if tgt_meta else "mule"
+
+            flags: List[str] = []
+            if getattr(src_meta, "kyc_identity_id", None) and getattr(tgt_meta, "kyc_identity_id", None):
+                if src_meta.kyc_identity_id == tgt_meta.kyc_identity_id:
+                    flags.append("Shared KYC Identity Cluster")
+            if leg_tx.device_fingerprint:
+                sharers = self.shares_device_fingerprint(cur)
+                if src in sharers:
+                    flags.append("Shared Device Fingerprint")
+
+            legs.append(
+                MoneyTrailLeg(
+                    hop_index=hop,
+                    source_account_id=src,
+                    target_account_id=cur,
+                    amount_inr=float(leg_tx.amount_inr),
+                    timestamp=_as_utc(leg_tx.timestamp).isoformat(),
+                    payment_channel=leg_tx.payment_channel,
+                    direction="in",
+                    source_tier=src_tier,
+                    target_tier=tgt_tier,
+                    suspicious_flags=flags,
+                )
+            )
+            cur = src
+
+        # Reverse so victim/origin is hop 1, progressing to aggregator
+        reversed_legs = list(reversed(legs))
+        for i, leg in enumerate(reversed_legs):
+            leg.hop_index = i + 1
+        return reversed_legs
+
+    def reconstruct_downstream_chain(
+        self,
+        start_account_id: str,
+        since_timestamp: Optional[Union[str, datetime]] = None,
+        max_hops: int = 8,
+        as_of: Optional[datetime] = None,
+    ) -> List[MoneyTrailLeg]:
+        """Reconstruct chronological downstream money trail walking forward from originating/victim node."""
+        if not self.has_account(start_account_id):
+            return []
+
+        since_dt = _as_utc(since_timestamp) if since_timestamp is not None else None
+        legs: List[MoneyTrailLeg] = []
+        cur = start_account_id
+        visited: Set[str] = {cur}
+
+        for hop in range(1, max_hops + 1):
+            outgoing = self.transactions_involving(cur, direction="out", as_of=as_of)
+            if since_dt:
+                outgoing = [tx for tx in outgoing if tx.timestamp_utc >= since_dt]
+            if not outgoing:
+                break
+
+            # Pick largest forward transaction leg
+            leg_tx = max(outgoing, key=lambda e: e.amount_inr)
+            tgt = leg_tx.target_account_id
+            if tgt in visited:
+                break
+            visited.add(tgt)
+
+            src_meta = self.get_account_metadata(cur)
+            tgt_meta = self.get_account_metadata(tgt)
+            src_tier = src_meta.account_tier if src_meta else "mule"
+            tgt_tier = tgt_meta.account_tier if tgt_meta else "mule"
+
+            flags: List[str] = []
+            if getattr(src_meta, "kyc_identity_id", None) and getattr(tgt_meta, "kyc_identity_id", None):
+                if src_meta.kyc_identity_id == tgt_meta.kyc_identity_id:
+                    flags.append("Shared KYC Identity Cluster")
+            if leg_tx.device_fingerprint:
+                sharers = self.shares_device_fingerprint(cur)
+                if tgt in sharers:
+                    flags.append("Shared Device Fingerprint")
+
+            legs.append(
+                MoneyTrailLeg(
+                    hop_index=hop,
+                    source_account_id=cur,
+                    target_account_id=tgt,
+                    amount_inr=float(leg_tx.amount_inr),
+                    timestamp=_as_utc(leg_tx.timestamp).isoformat(),
+                    payment_channel=leg_tx.payment_channel,
+                    direction="out",
+                    source_tier=src_tier,
+                    target_tier=tgt_tier,
+                    suspicious_flags=flags,
+                )
+            )
+            cur = tgt
+            since_dt = leg_tx.timestamp_utc
+
+        return legs
+
+    def get_downstream_transactions_from(
+        self,
+        start_account_id: str,
+        since_timestamp: Optional[Union[str, datetime]] = None,
+        as_of: Optional[datetime] = None,
+    ) -> List[TransactionEvent]:
+        """Fetch all chronological downstream transactions starting from an account."""
+        legs = self.reconstruct_downstream_chain(start_account_id, since_timestamp=since_timestamp, as_of=as_of)
+        tx_list: List[TransactionEvent] = []
+        for leg in legs:
+            for tx in self.transactions_involving(leg.source_account_id, direction="out", as_of=as_of):
+                if tx.target_account_id == leg.target_account_id:
+                    tx_list.append(tx)
+                    break
+        return tx_list
+
+    def compute_account_funds(
+        self,
+        account_id: str,
+        window_seconds: int = 3600,
+        as_of: Optional[datetime] = None,
+    ) -> Dict[str, float]:
+        """Compute selective fund breakdown: existing older funds vs recent suspicious received funds vs forward amount."""
+        as_of_dt = _as_utc(as_of) if as_of is not None else utcnow()
+        cutoff = as_of_dt - timedelta(seconds=window_seconds)
+
+        all_in = self.transactions_involving(account_id, direction="in")
+        recent_in = [tx for tx in all_in if tx.timestamp_utc >= cutoff]
+        older_in = [tx for tx in all_in if tx.timestamp_utc < cutoff]
+
+        all_out = self.transactions_involving(account_id, direction="out")
+        older_out = [tx for tx in all_out if tx.timestamp_utc < cutoff]
+        recent_out = [tx for tx in all_out if tx.timestamp_utc >= cutoff]
+
+        older_in_amt = sum(tx.amount_inr for tx in older_in)
+        older_out_amt = sum(tx.amount_inr for tx in older_out)
+        existing_balance = max(0.0, older_in_amt - older_out_amt)
+
+        # Baseline demo fallback for accounts with no older transaction history
+        if existing_balance == 0.0:
+            existing_balance = 20000.0
+
+        suspicious_amount = sum(tx.amount_inr for tx in recent_in) if recent_in else (
+            sum(tx.amount_inr for tx in all_in) if all_in else 100000.0
+        )
+        onward_moved = sum(tx.amount_inr for tx in recent_out)
+
+        # Protected amount is targeted to the recent suspicious amount
+        protected_amount = suspicious_amount
+
+        return {
+            "existing_balance": round(existing_balance, 2),
+            "suspicious_amount": round(suspicious_amount, 2),
+            "protected_amount": round(protected_amount, 2),
+            "onward_moved_amount": round(onward_moved, 2),
+        }
+
+    def find_nearby_terminals(
+        self,
+        terminal_id: str,
+        radius_km: float = 5.0,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Find other terminals within radius_km using Haversine distance."""
+        base = self.terminals.get(str(terminal_id))
+        if not base or "latitude" not in base or "longitude" not in base:
+            return []
+
+        b_lat, b_lon = float(base["latitude"]), float(base["longitude"])
+        results = []
+
+        for tid, term in self.terminals.items():
+            if tid == terminal_id:
+                continue
+            lat = term.get("latitude")
+            lon = term.get("longitude")
+            if lat is None or lon is None:
+                continue
+
+            dlat = math.radians(float(lat) - b_lat)
+            dlon = math.radians(float(lon) - b_lon)
+            a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(b_lat)) * math.cos(math.radians(float(lat))) * math.sin(dlon / 2) ** 2
+            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            dist = 6371.0 * c
+
+            if dist <= radius_km:
+                results.append({
+                    "terminal_id": tid,
+                    "terminal_type": term.get("terminal_type", "ATM_KIOSK"),
+                    "district": term.get("district", ""),
+                    "district_pincode": term.get("district_pincode", term.get("pincode", "")),
+                    "latitude": float(lat),
+                    "longitude": float(lon),
+                    "distance_km": round(dist, 2),
+                })
+
+        results.sort(key=lambda x: x["distance_km"])
+        return results[:limit]
+
+    def record_account_terminal_activity(
+        self,
+        account_id: str,
+        terminal_id: str,
+        timestamp: Union[str, datetime],
+    ) -> Dict[str, Any]:
+        """Record recurring account-terminal cash-out attempts and calculate escalation tier."""
+        self.record_terminal_usage(account_id, terminal_id, timestamp)
+        usages = self.recent_terminal_usages(account_id, limit=20)
+        matching = [u for u in usages if u["terminal_id"] == str(terminal_id)]
+        count = len(matching)
+
+        if count >= 3:
+            escalation_state = "PERSISTENT_TERMINAL_RISK"
+            risk_multiplier = 1.5
+            action = "ESCALATE_TERMINAL_BLOCK"
+        elif count == 2:
+            escalation_state = "ELEVATED_RISK"
+            risk_multiplier = 1.25
+            action = "ELEVATE_MONITORING"
+        else:
+            escalation_state = "MONITORED"
+            risk_multiplier = 1.0
+            action = "INITIAL_MONITOR"
+
+        return {
+            "account_id": account_id,
+            "terminal_id": terminal_id,
+            "occurrence_count": count,
+            "escalation_state": escalation_state,
+            "risk_multiplier": risk_multiplier,
+            "recommended_action": action,
+        }
+

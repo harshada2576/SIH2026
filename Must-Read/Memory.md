@@ -49,3 +49,15 @@ When you close an AI chat session and open a new one tomorrow (or switch tools m
 - Python backend tests: `python -m pytest` -> 24 passed (100%).
 - Android project: `CyberShield/` contains the native Kotlin Jetpack Compose app with Radar Google Maps, Investigation XAI drawer, Dispatch queue, and Auth screens.
 - Next step: Build and test CyberShield Android Kotlin app using Gradle.
+
+### Sept 9, 2026 — Android App USB Deployment & Unified Runner Script
+- What we built/changed:
+  - Compiled and built CyberShield debug APK with Gradle (`./gradlew assembleDebug`).
+  - Connected and authorized physical Android smartphone (vivo `I2409`) over USB with ADB in USB Debugging mode.
+  - Installed `app-debug.apk` onto the mobile device and launched `com.i4c.cybershield/.MainActivity` successfully.
+  - Created root unified orchestration script [`run.sh`](file:///home/seucra/Runes/projects/support/SIH2026/run.sh) and updated [`scripts/run_all.sh`](file:///home/seucra/Runes/projects/support/SIH2026/scripts/run_all.sh) with subcommands (`app`, `backend`, `demo`, `pipeline`, `test`, `all`).
+- Current state:
+  - CyberShield Native Android App is installed and running live on the connected mobile device.
+  - All 62 pytest backend tests passing.
+  - Mock services (Bank API port 8001, NCRP/I4C port 8002) and E2E demo scenarios verified and operational via `./run.sh`.
+

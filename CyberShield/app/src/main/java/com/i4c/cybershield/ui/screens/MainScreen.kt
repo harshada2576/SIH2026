@@ -118,6 +118,7 @@ fun MainScreen(viewModel: MainViewModel) {
                     complaint = primaryComplaint,
                     moneyTrail = MockDataRepository.primaryMoneyTrail,
                     riskBreakdown = MockDataRepository.primaryRiskBreakdown,
+                    investigationCase = MockDataRepository.primaryInvestigationCase,
                     investigationStatus = viewModel.investigationStatus,
                     showApproveDialog = viewModel.showApproveDialog,
                     showBankHoldDialog = viewModel.showBankHoldDialog,
