@@ -452,7 +452,10 @@ class CaseLifecycleState:
     PREDICTED = "PREDICTED"
     PRE_COMPLAINT_INTERVENTION = "PRE_COMPLAINT_INTERVENTION"
     CASHOUT_ATTEMPT_DETECTED = "CASHOUT_ATTEMPT_DETECTED"
+    CONFIRMED_FRAUD = "CONFIRMED_FRAUD"
     POST_COMPLAINT_ESCALATED = "POST_COMPLAINT_ESCALATED"
+    POLICE_ALERT_SENT = "POLICE_ALERT_SENT"
+    UNDER_INVESTIGATION = "UNDER_INVESTIGATION"
     RESOLVED = "RESOLVED"
 
 
@@ -610,6 +613,28 @@ class MoneyTrailLeg:
 
 
 @dataclass
+class TimelineEvent:
+    """Chronological event entry in a case's investigation history."""
+
+    event_id: str
+    case_id: str
+    event_type: str
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    source: str = "SYSTEM"
+    details: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "case_id": self.case_id,
+            "event_type": self.event_type,
+            "timestamp": self.timestamp,
+            "source": self.source,
+            "details": dict(self.details),
+        }
+
+
+@dataclass
 class CaseRecord:
     """Unified investigation case model spanning pre/post complaint lifecycle."""
 
@@ -619,6 +644,7 @@ class CaseRecord:
     risk_score: float = 0.0
     confidence: float = 0.0
     band: str = "HIGH"
+    priority: str = "HIGH"               # LOW | MEDIUM | HIGH | CRITICAL
     suspicious_amount: float = 0.0
     protected_amount: float = 0.0
     existing_balance: float = 0.0
@@ -629,10 +655,19 @@ class CaseRecord:
     evidence: List[str] = field(default_factory=list)
     bank_hold_status: str = "NONE"       # NONE | ACTIVE | PROVISIONAL | FULL_FREEZE
     terminal_block_status: str = "NONE"  # NONE | REQUESTED | ACTIVE
-    lea_notification_status: str = "NONE"# NONE | SENT | DISPATCHED
+    lea_notification_status: str = "NONE"# NONE | SENT | DISPATCHED | ACKNOWLEDGED | UNDER_INVESTIGATION | RESOLVED
     withdrawal_attempts: List[Dict[str, Any]] = field(default_factory=list)
     complaint_id: Optional[str] = None
+    fir_number: Optional[str] = None
     escalation_level: int = 1
+    police_alert_eligible: bool = False
+    police_alert_id: Optional[str] = None
+    recovery_case_id: Optional[str] = None
+    root_transaction_id: Optional[str] = None
+    chain_id: Optional[str] = None
+    confirmation_id: Optional[str] = None
+    resolution_reason: Optional[str] = None
+    resolved_at: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -644,6 +679,7 @@ class CaseRecord:
             "risk_score": self.risk_score,
             "confidence": self.confidence,
             "band": self.band,
+            "priority": self.priority,
             "suspicious_amount": self.suspicious_amount,
             "protected_amount": self.protected_amount,
             "existing_balance": self.existing_balance,
@@ -657,7 +693,16 @@ class CaseRecord:
             "lea_notification_status": self.lea_notification_status,
             "withdrawal_attempts": list(self.withdrawal_attempts),
             "complaint_id": self.complaint_id,
+            "fir_number": self.fir_number,
             "escalation_level": self.escalation_level,
+            "police_alert_eligible": self.police_alert_eligible,
+            "police_alert_id": self.police_alert_id,
+            "recovery_case_id": self.recovery_case_id,
+            "root_transaction_id": self.root_transaction_id,
+            "chain_id": self.chain_id,
+            "confirmation_id": self.confirmation_id,
+            "resolution_reason": self.resolution_reason,
+            "resolved_at": self.resolved_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -967,6 +1012,68 @@ class ConvergentChainsRecord:
             "downstream_chain": list(self.downstream_chain),
             "related_case_ids": list(self.related_case_ids),
         }
+
+
+# ============================================================================
+# 10. POLICE ALERT & DELIVERY SCHEMAS (Part 5 - SIH26184)
+# ============================================================================
+
+class PoliceAlertStatus:
+    """Standardized lifecycle states for police alerts."""
+
+    PENDING = "PENDING"
+    SENT = "SENT"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
+    UNDER_INVESTIGATION = "UNDER_INVESTIGATION"
+    RESOLVED = "RESOLVED"
+    CLOSED = "CLOSED"
+
+
+@dataclass
+class PoliceAlertRecord:
+    """Structured police alert payload generated upon explicit bank official escalation."""
+
+    police_alert_id: str
+    case_id: str
+    alert_status: str = PoliceAlertStatus.SENT
+    priority: str = "HIGH"
+    source: str = "CyberShield Bank Official"
+    incident: Dict[str, Any] = field(default_factory=dict)
+    origin_transaction: Dict[str, Any] = field(default_factory=dict)
+    money_trail: List[Dict[str, Any]] = field(default_factory=list)
+    relevant_accounts: List[str] = field(default_factory=list)
+    withdrawal_attempts: List[Dict[str, Any]] = field(default_factory=list)
+    nearby_terminals: List[Dict[str, Any]] = field(default_factory=list)
+    location_timeline: List[Dict[str, Any]] = field(default_factory=list)
+    evidence: List[str] = field(default_factory=list)
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    acknowledged_at: Optional[str] = None
+    acknowledged_by: Optional[str] = None
+    notes: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "police_alert_id": self.police_alert_id,
+            "case_id": self.case_id,
+            "alert_status": self.alert_status,
+            "priority": self.priority,
+            "source": self.source,
+            "incident": dict(self.incident),
+            "origin_transaction": dict(self.origin_transaction),
+            "money_trail": list(self.money_trail),
+            "relevant_accounts": list(self.relevant_accounts),
+            "withdrawal_attempts": list(self.withdrawal_attempts),
+            "nearby_terminals": list(self.nearby_terminals),
+            "location_timeline": list(self.location_timeline),
+            "evidence": list(self.evidence),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "acknowledged_at": self.acknowledged_at,
+            "acknowledged_by": self.acknowledged_by,
+            "notes": self.notes,
+        }
+
 
 
 

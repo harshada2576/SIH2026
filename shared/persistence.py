@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS cases (
     risk_score REAL NOT NULL,
     confidence REAL,
     band TEXT,
+    priority TEXT,
     suspicious_amount REAL NOT NULL,
     protected_amount REAL NOT NULL,
     existing_balance REAL NOT NULL,
@@ -77,9 +79,30 @@ CREATE TABLE IF NOT EXISTS cases (
     lea_notification_status TEXT,
     withdrawal_attempts_json TEXT,
     complaint_id TEXT,
+    fir_number TEXT,
     escalation_level INTEGER DEFAULT 1,
+    police_alert_eligible INTEGER DEFAULT 0,
+    police_alert_id TEXT,
+    recovery_case_id TEXT,
+    root_transaction_id TEXT,
+    chain_id TEXT,
+    confirmation_id TEXT,
+    resolution_reason TEXT,
+    resolved_at TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS case_timeline_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT UNIQUE NOT NULL,
+    case_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    source TEXT NOT NULL,
+    details_json TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (case_id) REFERENCES cases(case_id)
 );
 
 CREATE TABLE IF NOT EXISTS selective_holds (
@@ -223,6 +246,21 @@ CREATE TABLE IF NOT EXISTS recovery_cases (
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS police_alerts (
+    police_alert_id TEXT PRIMARY KEY,
+    case_id TEXT UNIQUE NOT NULL,
+    alert_status TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    acknowledged_at TEXT,
+    acknowledged_by TEXT,
+    notes TEXT,
+    payload_json TEXT NOT NULL,
+    FOREIGN KEY (case_id) REFERENCES cases(case_id)
+);
 """
 
 
@@ -232,6 +270,25 @@ class Store:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.executescript(SCHEMA)
+
+        # Auto-migrate new columns for backwards compatibility with pre-existing DBs
+        for col_name, col_type in [
+            ("priority", "TEXT"),
+            ("fir_number", "TEXT"),
+            ("police_alert_eligible", "INTEGER DEFAULT 0"),
+            ("police_alert_id", "TEXT"),
+            ("recovery_case_id", "TEXT"),
+            ("root_transaction_id", "TEXT"),
+            ("chain_id", "TEXT"),
+            ("confirmation_id", "TEXT"),
+            ("resolution_reason", "TEXT"),
+            ("resolved_at", "TEXT"),
+        ]:
+            try:
+                self._conn.execute(f"ALTER TABLE cases ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError:
+                pass
+
         self._conn.commit()
 
     def save_transaction(self, tx: Any) -> bool:
@@ -332,12 +389,14 @@ class Store:
 
         self._conn.execute(
             """INSERT OR REPLACE INTO cases
-               (case_id, flagged_account_id, state, risk_score, confidence, band,
+               (case_id, flagged_account_id, state, risk_score, confidence, band, priority,
                 suspicious_amount, protected_amount, existing_balance,
                 money_trail_json, predicted_terminals_json, predicted_window_start, predicted_window_end,
                 evidence_json, bank_hold_status, terminal_block_status, lea_notification_status,
-                withdrawal_attempts_json, complaint_id, escalation_level, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                withdrawal_attempts_json, complaint_id, fir_number, escalation_level,
+                police_alert_eligible, police_alert_id, recovery_case_id, root_transaction_id,
+                chain_id, confirmation_id, resolution_reason, resolved_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 str(data["case_id"]),
                 str(data["flagged_account_id"]),
@@ -345,6 +404,7 @@ class Store:
                 float(data.get("risk_score", 0.0)),
                 float(data.get("confidence", 0.0)) if data.get("confidence") is not None else None,
                 str(data.get("band", "HIGH")),
+                str(data.get("priority", data.get("band", "HIGH"))),
                 float(data.get("suspicious_amount", 0.0)),
                 float(data.get("protected_amount", 0.0)),
                 float(data.get("existing_balance", 0.0)),
@@ -358,7 +418,16 @@ class Store:
                 str(data.get("lea_notification_status", "NONE")),
                 json.dumps(list(data.get("withdrawal_attempts", []))),
                 data.get("complaint_id"),
+                data.get("fir_number"),
                 int(data.get("escalation_level", 1)),
+                int(bool(data.get("police_alert_eligible", False))),
+                data.get("police_alert_id"),
+                data.get("recovery_case_id"),
+                data.get("root_transaction_id"),
+                data.get("chain_id"),
+                data.get("confirmation_id"),
+                data.get("resolution_reason"),
+                data.get("resolved_at"),
                 str(data.get("created_at", "")),
                 str(data.get("updated_at", "")),
             ),
@@ -372,6 +441,7 @@ class Store:
             return None
         cols = [d[0] for d in cur.description]
         rec = dict(zip(cols, row))
+        rec["police_alert_eligible"] = bool(rec.get("police_alert_eligible", 0))
         for json_col in ("money_trail", "predicted_terminals", "evidence", "withdrawal_attempts"):
             json_key = f"{json_col}_json"
             if rec.get(json_key):
@@ -383,14 +453,33 @@ class Store:
                     pass
         return rec
 
-    def recent_cases(self, limit: int = 20) -> List[Dict[str, Any]]:
-        cur = self._conn.execute(
-            "SELECT * FROM cases ORDER BY updated_at DESC, created_at DESC LIMIT ?", (limit,)
-        )
+    def recent_cases(
+        self,
+        limit: int = 50,
+        state: Optional[str] = None,
+        priority: Optional[str] = None,
+        account_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        query = "SELECT * FROM cases WHERE 1=1"
+        params = []
+        if state:
+            query += " AND state = ?"
+            params.append(str(state))
+        if priority:
+            query += " AND priority = ?"
+            params.append(str(priority))
+        if account_id:
+            query += " AND flagged_account_id = ?"
+            params.append(str(account_id))
+        query += " ORDER BY updated_at DESC, created_at DESC LIMIT ?"
+        params.append(limit)
+
+        cur = self._conn.execute(query, tuple(params))
         cols = [d[0] for d in cur.description]
         rows = []
         for r in cur.fetchall():
             rec = dict(zip(cols, r))
+            rec["police_alert_eligible"] = bool(rec.get("police_alert_eligible", 0))
             for json_col in ("money_trail", "predicted_terminals", "evidence", "withdrawal_attempts"):
                 json_key = f"{json_col}_json"
                 if rec.get(json_key):
@@ -402,6 +491,42 @@ class Store:
                         pass
             rows.append(rec)
         return rows
+
+    def save_timeline_event(self, event: Any) -> None:
+        """Persist a TimelineEvent into SQLite."""
+        data = event.to_dict() if hasattr(event, "to_dict") else dict(event)
+        self._conn.execute(
+            """INSERT OR REPLACE INTO case_timeline_events
+               (event_id, case_id, event_type, timestamp, source, details_json)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                str(data["event_id"]),
+                str(data["case_id"]),
+                str(data["event_type"]),
+                str(data["timestamp"]),
+                str(data.get("source", "SYSTEM")),
+                json.dumps(data.get("details", {})),
+            ),
+        )
+        self._conn.commit()
+
+    def get_case_timeline(self, case_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Retrieve chronological timeline events for a case."""
+        cur = self._conn.execute(
+            "SELECT * FROM case_timeline_events WHERE case_id = ? ORDER BY timestamp ASC, id ASC LIMIT ?",
+            (str(case_id), limit),
+        )
+        cols = [d[0] for d in cur.description]
+        events = []
+        for r in cur.fetchall():
+            rec = dict(zip(cols, r))
+            if rec.get("details_json"):
+                try:
+                    rec["details"] = json.loads(rec["details_json"])
+                except Exception:
+                    rec["details"] = {}
+            events.append(rec)
+        return events
 
     def save_selective_hold(self, hold: Any) -> None:
         """Persist a SelectiveFundProtection record into SQLite."""
@@ -997,7 +1122,138 @@ class Store:
         rows = cur.fetchall()
         return [self._hydrate_recovery_case(cur, r) for r in rows if r]
 
+    # ------------------------------------------------------------------------
+    # Part 5: Police Alert & Delivery Persistence
+    # ------------------------------------------------------------------------
+
+    def save_police_alert(self, alert: Any) -> None:
+        """Persist or update a PoliceAlertRecord into SQLite."""
+        data = alert.to_dict() if hasattr(alert, "to_dict") else dict(alert)
+        self._conn.execute(
+            """
+            INSERT INTO police_alerts (
+                police_alert_id, case_id, alert_status, priority, source,
+                created_at, updated_at, acknowledged_at, acknowledged_by, notes, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(police_alert_id) DO UPDATE SET
+                alert_status = excluded.alert_status,
+                priority = excluded.priority,
+                updated_at = excluded.updated_at,
+                acknowledged_at = excluded.acknowledged_at,
+                acknowledged_by = excluded.acknowledged_by,
+                notes = excluded.notes,
+                payload_json = excluded.payload_json
+            """,
+            (
+                str(data["police_alert_id"]),
+                str(data["case_id"]),
+                str(data.get("alert_status", "SENT")),
+                str(data.get("priority", "HIGH")),
+                str(data.get("source", "CyberShield Bank Official")),
+                str(data.get("created_at", "")),
+                str(data.get("updated_at", "")),
+                str(data.get("acknowledged_at")) if data.get("acknowledged_at") else None,
+                str(data.get("acknowledged_by")) if data.get("acknowledged_by") else None,
+                str(data.get("notes", "")),
+                json.dumps(data),
+            ),
+        )
+        self._conn.commit()
+
+    def _hydrate_police_alert(self, cur, row) -> Optional[Dict[str, Any]]:
+        if not row:
+            return None
+        cols = [d[0] for d in cur.description]
+        rec = dict(zip(cols, row))
+        if rec.get("payload_json"):
+            try:
+                payload = json.loads(rec["payload_json"])
+                payload["alert_status"] = rec["alert_status"]
+                payload["updated_at"] = rec["updated_at"]
+                payload["acknowledged_at"] = rec["acknowledged_at"]
+                payload["acknowledged_by"] = rec["acknowledged_by"]
+                payload["notes"] = rec["notes"]
+                return payload
+            except Exception:
+                pass
+        return rec
+
+    def get_police_alert(self, police_alert_id: str) -> Optional[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM police_alerts WHERE police_alert_id = ?",
+            (str(police_alert_id),),
+        )
+        return self._hydrate_police_alert(cur, cur.fetchone())
+
+    def get_police_alert_by_case(self, case_id: str) -> Optional[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM police_alerts WHERE case_id = ? ORDER BY created_at DESC LIMIT 1",
+            (str(case_id),),
+        )
+        return self._hydrate_police_alert(cur, cur.fetchone())
+
+    def recent_police_alerts(
+        self,
+        limit: int = 50,
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        query = "SELECT * FROM police_alerts WHERE 1=1"
+        params = []
+        if status:
+            query += " AND alert_status = ?"
+            params.append(str(status))
+        if priority:
+            query += " AND priority = ?"
+            params.append(str(priority))
+        query += " ORDER BY updated_at DESC, created_at DESC LIMIT ?"
+        params.append(limit)
+        cur = self._conn.execute(query, tuple(params))
+        rows = cur.fetchall()
+        return [self._hydrate_police_alert(cur, r) for r in rows if r]
+
+    def update_police_alert_status(
+        self,
+        police_alert_id: str,
+        new_status: str,
+        actor_id: Optional[str] = None,
+        notes: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        alert_dict = self.get_police_alert(police_alert_id)
+        if not alert_dict:
+            return None
+
+        now_str = datetime.now(timezone.utc).isoformat()
+        alert_dict["alert_status"] = new_status
+        alert_dict["updated_at"] = now_str
+        if notes:
+            alert_dict["notes"] = notes
+
+        ack_at = alert_dict.get("acknowledged_at")
+        ack_by = alert_dict.get("acknowledged_by")
+
+        if new_status == "ACKNOWLEDGED" or (new_status in ("UNDER_INVESTIGATION", "RESOLVED", "CLOSED") and not ack_at):
+            if not ack_at:
+                ack_at = now_str
+            if actor_id and not ack_by:
+                ack_by = actor_id
+            alert_dict["acknowledged_at"] = ack_at
+            alert_dict["acknowledged_by"] = ack_by
+
+        self.save_police_alert(alert_dict)
+
+        # Sync back to correlated cases table
+        case_id = alert_dict["case_id"]
+        c_rec = self.get_case(case_id)
+        if c_rec:
+            c_rec["lea_notification_status"] = new_status
+            c_rec["updated_at"] = now_str
+            self.save_case(c_rec)
+
+        return alert_dict
+
     def close(self) -> None:
         self._conn.close()
+
 
 

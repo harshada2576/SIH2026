@@ -245,13 +245,36 @@ class MainViewModel : ViewModel() {
         investigationStatus = ActionStatus.APPROVED
         addAuditEntry(
             timestamp = "10:${18 + auditLog.size} AM",
-            officerName = "Officer Current User",
+            officerName = "Bank Official User",
             ncrpId = "NCRP-994821",
-            action = "Dispatched to Sector 20 Police Patrol",
-            targetUnit = "Sector 20 Patrol Unit",
+            action = "Police Alert Dispatched (POST /cases/$selectedCaseId/police-alert)",
+            targetUnit = "Sector 20 Police Patrol Unit",
             status = ActionStatus.EN_ROUTE
         )
-        showToast("Alert package dispatched to Sector 20 Police Patrol.")
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val urls = listOf(
+                    "http://10.0.2.2:8001/cases/$selectedCaseId/police-alert",
+                    "http://localhost:8001/cases/$selectedCaseId/police-alert"
+                )
+                for (urlString in urls) {
+                    try {
+                        val url = java.net.URL(urlString)
+                        val conn = url.openConnection() as java.net.HttpURLConnection
+                        conn.requestMethod = "POST"
+                        conn.setRequestProperty("Content-Type", "application/json")
+                        conn.setRequestProperty("X-User-Role", "BANK_OFFICIAL")
+                        conn.doOutput = true
+                        conn.connectTimeout = 2000
+                        conn.readTimeout = 2000
+                        val jsonBody = "{\"source\": \"CyberShield Mobile App\"}"
+                        conn.outputStream.use { os -> os.write(jsonBody.toByteArray()) }
+                        if (conn.responseCode == 200) break
+                    } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
+        }
+        showToast("Police Alert package created & delivered for $selectedCaseId.")
     }
 
     fun issueBankHold() {

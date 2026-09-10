@@ -334,7 +334,8 @@ class WithdrawalGeoIntelligence:
 
         # 1. Add Predicted Terminal Locations
         for pred in case_dict.get("predicted_terminals", []):
-            tid = pred.get("terminal_id", "")
+            pred_dict = pred if isinstance(pred, dict) else {}
+            tid = pred_dict.get("terminal_id", "") if isinstance(pred, dict) else str(pred)
             term_meta = self.graph_store.terminals.get(tid, {})
             history.append(
                 LocationEvidenceRecord(
@@ -343,8 +344,8 @@ class WithdrawalGeoIntelligence:
                     terminal_type=term_meta.get("terminal_type", "ATM_KIOSK"),
                     district=term_meta.get("district", ""),
                     district_pincode=term_meta.get("district_pincode", term_meta.get("pincode", "")),
-                    latitude=float(pred.get("latitude") or term_meta.get("latitude") or 0.0),
-                    longitude=float(pred.get("longitude") or term_meta.get("longitude") or 0.0),
+                    latitude=float(pred_dict.get("latitude") or term_meta.get("latitude") or 0.0),
+                    longitude=float(pred_dict.get("longitude") or term_meta.get("longitude") or 0.0),
                     timestamp=case_dict.get("predicted_window_start", datetime.now(timezone.utc).isoformat()),
                     event_type="PREDICTED_EGRESS",
                     amount_inr=float(case_dict.get("suspicious_amount", 0.0)),

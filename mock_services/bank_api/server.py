@@ -48,9 +48,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 from urllib.parse import urlparse
 
+from mock_services.bank_api.police_ui import POLICE_APP_HTML
 from detection.transaction_control import TransactionControlManager
+from pipeline.case_orchestrator import CaseOrchestrator
 from pipeline.fund_traceability import FundTraceabilityEngine
 from pipeline.geo_intelligence import WithdrawalGeoIntelligence
+from pipeline.police_alert_delivery import PoliceAlertManager
 from shared.persistence import Store
 
 BANKS = ["HDFC-SIM", "ICICI-SIM", "SBI-SIM"]
@@ -64,6 +67,8 @@ _STORE: Optional[Store] = None
 _CONTROL_MGR: Optional[TransactionControlManager] = None
 _TRACE_ENGINE: Optional[FundTraceabilityEngine] = None
 _GEO_INTEL: Optional[WithdrawalGeoIntelligence] = None
+_POLICE_MGR: Optional[PoliceAlertManager] = None
+_ORCHESTRATOR: Optional[CaseOrchestrator] = None
 
 
 def _get_store() -> Store:
@@ -92,6 +97,30 @@ def _get_geo_intel() -> WithdrawalGeoIntelligence:
     if _GEO_INTEL is None:
         _GEO_INTEL = WithdrawalGeoIntelligence(store=_get_store())
     return _GEO_INTEL
+
+
+def _get_police_manager() -> PoliceAlertManager:
+    global _POLICE_MGR
+    if _POLICE_MGR is None:
+        _POLICE_MGR = PoliceAlertManager(
+            store=_get_store(),
+            trace_engine=_get_trace_engine(),
+            geo_intel=_get_geo_intel(),
+        )
+    return _POLICE_MGR
+
+
+def _get_orchestrator() -> CaseOrchestrator:
+    global _ORCHESTRATOR
+    if _ORCHESTRATOR is None:
+        _ORCHESTRATOR = CaseOrchestrator(
+            store=_get_store(),
+            control_mgr=_get_control_manager(),
+            trace_engine=_get_trace_engine(),
+            geo_intel=_get_geo_intel(),
+            police_mgr=_get_police_manager(),
+        )
+    return _ORCHESTRATOR
 
 
 def _bank_for(account_id: str) -> str:
@@ -192,6 +221,14 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(payload, indent=2).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_html(self, status: int, html: str) -> None:
+        body = html.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -297,6 +334,61 @@ class Handler(BaseHTTPRequestHandler):
         elif len(parts) == 3 and parts[0] == "cases" and parts[2] == "locations":
             locations = geo.get_case_location_history(parts[1])
             self._send_json(200, {"case_id": parts[1], "locations": [loc.to_dict() for loc in locations]})
+        elif parts == ["cases"]:
+            orch = _get_orchestrator()
+            st = self.headers.get("X-Filter-Status")
+            pr = self.headers.get("X-Filter-Priority")
+            acc = self.headers.get("X-Filter-Account")
+            cases = orch.list_cases(limit=100, state=st, priority=pr, account_id=acc)
+            self._send_json(200, {"cases": cases})
+        elif len(parts) == 2 and parts[0] == "cases":
+            orch = _get_orchestrator()
+            c_details = orch.get_case_details(parts[1])
+            if c_details:
+                self._send_json(200, c_details)
+            else:
+                self._send_json(404, {"error": "case not found"})
+        elif len(parts) == 3 and parts[0] == "cases" and parts[2] == "timeline":
+            orch = _get_orchestrator()
+            tl = orch.get_case_timeline(parts[1])
+            self._send_json(200, {"case_id": parts[1], "timeline_events": tl})
+        elif len(parts) == 3 and parts[0] == "cases" and parts[2] == "evidence":
+            orch = _get_orchestrator()
+            c_details = orch.get_case_details(parts[1])
+            if c_details:
+                self._send_json(200, {
+                    "case_id": parts[1],
+                    "evidence": c_details.get("evidence", []),
+                    "money_trail": c_details.get("money_trail", []),
+                    "predicted_terminals": c_details.get("predicted_terminals", []),
+                    "withdrawal_attempts": c_details.get("withdrawal_attempts", []),
+                    "complaint_id": c_details.get("complaint_id"),
+                    "fir_number": c_details.get("fir_number"),
+                })
+            else:
+                self._send_json(404, {"error": "case not found"})
+        elif parts in (["police"], ["police-app"], ["police", "ui"]):
+            self._send_html(200, POLICE_APP_HTML)
+        elif parts in (["police-alerts"], ["police_alerts"]):
+            pol = _get_police_manager()
+            st = self.headers.get("X-Filter-Status")
+            pr = self.headers.get("X-Filter-Priority")
+            alerts = pol.list_police_alerts(limit=100, status=st, priority=pr)
+            self._send_json(200, {"police_alerts": alerts})
+        elif len(parts) == 2 and parts[0] in ("police-alerts", "police_alerts"):
+            pol = _get_police_manager()
+            alert = pol.get_police_alert(parts[1])
+            if alert:
+                self._send_json(200, alert)
+            else:
+                self._send_json(404, {"error": "police alert not found"})
+        elif len(parts) == 3 and parts[0] == "cases" and parts[2] in ("police-alert", "police_alert"):
+            pol = _get_police_manager()
+            alert = pol.store.get_police_alert_by_case(parts[1])
+            if alert:
+                self._send_json(200, alert)
+            else:
+                self._send_json(404, {"error": "police alert not found for case"})
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -402,6 +494,107 @@ class Handler(BaseHTTPRequestHandler):
                     action_note=notes,
                 )
                 self._send_json(200, {"status": "SUCCESS", "recovery_case": updated_case.to_dict()})
+            except KeyError as e:
+                self._send_json(404, {"error": str(e)})
+            except Exception as e:
+                self._send_json(400, {"error": str(e)})
+        elif len(parts) == 3 and parts[0] == "cases" and parts[2] == "escalate":
+            case_id = parts[1]
+            reason = body.get("reason", "")
+            role = body.get("role", "BANK_OFFICIAL")
+            orch = _get_orchestrator()
+            try:
+                rec = orch.escalate_case(case_id=case_id, reason=reason, actor_role=role)
+                self._send_json(200, {"status": "SUCCESS", "case": rec.to_dict()})
+            except KeyError as e:
+                self._send_json(404, {"error": str(e)})
+            except Exception as e:
+                self._send_json(400, {"error": str(e)})
+        elif len(parts) == 3 and parts[0] == "cases" and parts[2] == "resolve":
+            case_id = parts[1]
+            reason = body.get("reason", "Resolved")
+            actor_id = body.get("actor_id")
+            orch = _get_orchestrator()
+            try:
+                rec = orch.resolve_case(case_id=case_id, reason=reason, actor_id=actor_id)
+                self._send_json(200, {"status": "SUCCESS", "case": rec.to_dict()})
+            except KeyError as e:
+                self._send_json(404, {"error": str(e)})
+            except Exception as e:
+                self._send_json(400, {"error": str(e)})
+        elif len(parts) == 3 and parts[0] == "cases" and parts[2] == "dismiss":
+            case_id = parts[1]
+            reason = body.get("reason", "False Positive")
+            actor_id = body.get("actor_id")
+            orch = _get_orchestrator()
+            try:
+                rec = orch.dismiss_case(case_id=case_id, reason=reason, actor_id=actor_id)
+                self._send_json(200, {"status": "SUCCESS", "case": rec.to_dict()})
+            except KeyError as e:
+                self._send_json(404, {"error": str(e)})
+            except Exception as e:
+                self._send_json(400, {"error": str(e)})
+        elif len(parts) == 3 and parts[0] == "cases" and parts[2] in ("complaint", "fir"):
+            case_id = parts[1]
+            c_id = body.get("complaint_id", body.get("complaint_number", "NCRP-REQ"))
+            fir_num = body.get("fir_number")
+            victim_acc = body.get("victim_account")
+            rep_loss = float(body.get("reported_loss", 0.0)) if body.get("reported_loss") else None
+            orch = _get_orchestrator()
+            try:
+                rec = orch.attach_complaint_fir(
+                    case_id=case_id,
+                    complaint_id=c_id,
+                    fir_number=fir_num,
+                    victim_account=victim_acc,
+                    reported_loss=rep_loss,
+                )
+                self._send_json(200, {"status": "SUCCESS", "case": rec.to_dict()})
+            except KeyError as e:
+                self._send_json(404, {"error": str(e)})
+            except Exception as e:
+                self._send_json(400, {"error": str(e)})
+        elif len(parts) == 3 and parts[0] == "cases" and parts[2] in ("police-alert", "police_alert"):
+            case_id = parts[1]
+            caller_role = self.headers.get("X-User-Role", body.get("role", "BANK_OFFICIAL"))
+            source = body.get("source", "CyberShield Bank Official")
+            orch = _get_orchestrator()
+            try:
+                res = orch.trigger_police_alert(case_id=case_id, actor_role=caller_role, source=source)
+                self._send_json(200, res)
+            except PermissionError as e:
+                self._send_json(403, {"error": str(e)})
+            except KeyError as e:
+                self._send_json(404, {"error": str(e)})
+            except Exception as e:
+                self._send_json(400, {"error": str(e)})
+        elif len(parts) == 3 and parts[0] in ("police-alerts", "police_alerts") and parts[2] == "acknowledge":
+            alert_id = parts[1]
+            caller_role = self.headers.get("X-User-Role", body.get("role", "POLICE_OFFICER"))
+            officer_id = body.get("officer_id", "DUTY-OFFICER-01")
+            notes = body.get("notes", "")
+            pol = _get_police_manager()
+            try:
+                rec = pol.acknowledge_police_alert(police_alert_id=alert_id, caller_role=caller_role, officer_id=officer_id, notes=notes)
+                self._send_json(200, {"status": "SUCCESS", "police_alert": rec.to_dict()})
+            except PermissionError as e:
+                self._send_json(403, {"error": str(e)})
+            except KeyError as e:
+                self._send_json(404, {"error": str(e)})
+            except Exception as e:
+                self._send_json(400, {"error": str(e)})
+        elif len(parts) == 3 and parts[0] in ("police-alerts", "police_alerts") and parts[2] == "status":
+            alert_id = parts[1]
+            caller_role = self.headers.get("X-User-Role", body.get("role", "POLICE_OFFICER"))
+            officer_id = body.get("officer_id", "DUTY-OFFICER-01")
+            new_status = body.get("status", "")
+            notes = body.get("notes", "")
+            pol = _get_police_manager()
+            try:
+                rec = pol.update_investigation_status(police_alert_id=alert_id, new_status=new_status, caller_role=caller_role, officer_id=officer_id, notes=notes)
+                self._send_json(200, {"status": "SUCCESS", "police_alert": rec.to_dict()})
+            except PermissionError as e:
+                self._send_json(403, {"error": str(e)})
             except KeyError as e:
                 self._send_json(404, {"error": str(e)})
             except Exception as e:
