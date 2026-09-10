@@ -66,12 +66,23 @@ class MainViewModel : ViewModel() {
         }
 
     // ─── Investigation State ───────────────────────────────────────────
+    var selectedCaseId by mutableStateOf("CASE-ALERT-1732")
+        private set
+
+    val currentInvestigationCase: InvestigationCase
+        get() = MockDataRepository.getCaseById(selectedCaseId)
+
     var investigationStatus by mutableStateOf(ActionStatus.PENDING)
         private set
     var showApproveDialog by mutableStateOf(false)
         private set
     var showBankHoldDialog by mutableStateOf(false)
         private set
+
+    fun selectCase(caseId: String) {
+        selectedCaseId = caseId
+        currentTab = 1
+    }
 
     // ─── Dispatch / Audit State ────────────────────────────────────────
     var auditLog = mutableStateListOf<AuditLogEntry>()

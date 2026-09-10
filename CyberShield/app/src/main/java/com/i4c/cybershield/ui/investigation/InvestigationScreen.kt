@@ -67,6 +67,12 @@ fun InvestigationScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // ─── Section 2.5: Transaction Confirmation Status ──────────
+        investigationCase.confirmation?.let { confirmation ->
+            TransactionConfirmationCard(confirmation)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
         // ─── Section 3: Money Trail Network & Detailed Hops ────────
         MoneyTrailVisual(moneyTrail, investigationCase.trailHops)
 
@@ -77,7 +83,19 @@ fun InvestigationScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ─── Section 5: Repeated ATM Targeting & Recurrence ────────
+        // ─── Section 4.5: Recorded Withdrawal & Cashout Attempts ──
+        if (investigationCase.withdrawalAttempts.isNotEmpty()) {
+            RecordedWithdrawalsCard(investigationCase.withdrawalAttempts)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // ─── Section 5: Location Evidence & Incident Timeline ──────
+        if (investigationCase.timelineEvents.isNotEmpty()) {
+            TimelineEventsCard(investigationCase.timelineEvents)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // ─── Section 5.5: Repeated ATM Targeting & Recurrence ──────
         investigationCase.recurrence?.let { recurrence ->
             RepeatedAtmCard(recurrence)
             Spacer(modifier = Modifier.height(16.dp))
@@ -1322,6 +1340,364 @@ private fun MetricChip(
     }
 }
 
+@Composable
+private fun TransactionConfirmationCard(confirmation: TransactionConfirmationInfo) {
+    val (statusColor, statusBg, icon) = when (confirmation.status) {
+        ConfirmationStatus.CONFIRMED_FRAUD -> Triple(ErrorRed, Color(0xFF2D1F1F), Icons.Default.GppBad)
+        ConfirmationStatus.CONFIRMED_LEGITIMATE -> Triple(SuccessGreen, Color(0xFF1F2826), Icons.Default.GppGood)
+        ConfirmationStatus.PENDING_CONFIRMATION -> Triple(MediumCyan, Color(0xFF1F252D), Icons.Default.HourglassTop)
+        ConfirmationStatus.EXPIRED -> Triple(WarningYellow, Color(0xFF2D291F), Icons.Default.TimerOff)
+        ConfirmationStatus.SKIPPED -> Triple(BorderTaupe, SurfaceCharcoal, Icons.Default.Forward)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = statusBg),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = Brush.linearGradient(
+                colors = listOf(statusColor.copy(alpha = 0.4f), Color.Transparent)
+            )
+        )
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = statusColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "TRANSACTION CONFIRMATION STATUS",
+                        fontSize = 11.sp,
+                        color = statusColor,
+                        letterSpacing = 1.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Card(
+                    shape = RoundedCornerShape(6.dp),
+                    colors = CardDefaults.cardColors(containerColor = statusColor.copy(alpha = 0.15f))
+                ) {
+                    Text(
+                        text = confirmation.status.displayName,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = statusColor
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = confirmation.explanatoryNote,
+                fontSize = 11.sp,
+                color = TextOffWhite,
+                lineHeight = 16.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Card(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = BgDeepSlate)
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text("Transaction ID", fontSize = 9.sp, color = BorderTaupe)
+                        Text(confirmation.txnId, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextOffWhite)
+                    }
+                }
+                Card(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = BgDeepSlate)
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text("Prompt Channel", fontSize = 9.sp, color = BorderTaupe)
+                        Text(confirmation.promptChannel, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = TextOffWhite, maxLines = 1)
+                    }
+                }
+                Card(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = BgDeepSlate)
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text("Response Time", fontSize = 9.sp, color = BorderTaupe)
+                        Text(confirmation.respondedAt ?: "Pending", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = statusColor)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecordedWithdrawalsCard(withdrawals: List<RecordedWithdrawal>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCharcoal),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = Brush.linearGradient(
+                colors = listOf(AlertOrange.copy(alpha = 0.35f), Color.Transparent)
+            )
+        )
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        Icons.Default.LocalAtm,
+                        contentDescription = null,
+                        tint = AlertOrange,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "RECORDED WITHDRAWAL ATTEMPTS",
+                        fontSize = 11.sp,
+                        color = AlertOrange,
+                        letterSpacing = 1.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Card(
+                    shape = RoundedCornerShape(6.dp),
+                    colors = CardDefaults.cardColors(containerColor = AlertOrange.copy(alpha = 0.15f))
+                ) {
+                    Text(
+                        text = "${withdrawals.size} RECORDED",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AlertOrange
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            withdrawals.forEachIndexed { index, withdrawal ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = BgDeepSlate)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Block,
+                                    contentDescription = null,
+                                    tint = ErrorRed,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "${withdrawal.terminalName} (${withdrawal.terminalId})",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextOffWhite
+                                )
+                            }
+                            Text(
+                                text = withdrawal.amount,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AlertOrange
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "${withdrawal.channel} • ${withdrawal.timestamp}",
+                                fontSize = 10.sp,
+                                color = BorderTaupe
+                            )
+                            Card(
+                                shape = RoundedCornerShape(4.dp),
+                                colors = CardDefaults.cardColors(containerColor = ErrorRed.copy(alpha = 0.15f))
+                            ) {
+                                Text(
+                                    text = withdrawal.status.displayName,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ErrorRed
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "Result: ${withdrawal.failureReason}",
+                            fontSize = 10.sp,
+                            color = MediumCyan
+                        )
+                    }
+                }
+
+                if (index < withdrawals.size - 1) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineEventsCard(events: List<LocationTimelineEvent>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCharcoal),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = Brush.linearGradient(
+                colors = listOf(MediumCyan.copy(alpha = 0.35f), Color.Transparent)
+            )
+        )
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Timeline,
+                        contentDescription = null,
+                        tint = MediumCyan,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "LOCATION EVIDENCE & INCIDENT TIMELINE",
+                        fontSize = 11.sp,
+                        color = MediumCyan,
+                        letterSpacing = 1.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Card(
+                    shape = RoundedCornerShape(6.dp),
+                    colors = CardDefaults.cardColors(containerColor = MediumCyan.copy(alpha = 0.15f))
+                ) {
+                    Text(
+                        text = "${events.size} EVENTS",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MediumCyan
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            events.forEachIndexed { index, event ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    when (event.eventType) {
+                                        "ORIGIN" -> ErrorRed
+                                        "ACTION" -> SuccessGreen
+                                        "MULE_HOP" -> WarningYellow
+                                        "PREDICTION" -> AlertOrange
+                                        else -> MediumCyan
+                                    }
+                                )
+                        )
+                        if (index < events.size - 1) {
+                            Box(
+                                modifier = Modifier
+                                    .width(2.dp)
+                                    .height(36.dp)
+                                    .background(BorderTaupe.copy(alpha = 0.25f))
+                            )
+                        }
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = event.title,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextOffWhite
+                            )
+                            Text(
+                                text = event.timestamp,
+                                fontSize = 10.sp,
+                                color = BorderTaupe
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = event.description,
+                            fontSize = 10.sp,
+                            color = BorderTaupe,
+                            lineHeight = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Helper data class for destructuring
 private data class Quadruple<A, B, C, D>(
     val first: A,
@@ -1329,4 +1705,5 @@ private data class Quadruple<A, B, C, D>(
     val third: C,
     val fourth: D
 )
+
 

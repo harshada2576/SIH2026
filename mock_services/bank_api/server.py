@@ -16,7 +16,7 @@ Endpoints:
   GET  /accounts                       -- every account this server has seen
   POST /terminal/block                 -- physical ATM block request
   GET  /terminal/blocks                -- active terminal blocks
-  POST /terminal/attempt               -- log cashout attempt
+  POST /terminal/attempt               -- process cashout attempt via WithdrawalGeoIntelligence
   GET  /terminal/attempts              -- list cashout attempts
   POST /confirmations/request          -- create PENDING_CONFIRMATION
   POST /confirmations/{id}/respond     -- respond CONFIRMED_LEGITIMATE or CONFIRMED_FRAUD
@@ -25,6 +25,18 @@ Endpoints:
   POST /transaction-control/evaluate   -- evaluate transfer or withdrawal channel control
   GET  /recovery-workflows             -- list recovery workflows
   GET  /recovery-workflows/{id}        -- get recovery workflow
+  GET  /chains                         -- list all recent provenance chains
+  GET  /chains/{id}                    -- get specific provenance chain
+  GET  /chains/account/{id}/exposure   -- get account exposure (legitimate vs suspicious)
+  GET  /chains/account/{id}/convergent -- get convergent multi-victim chains for account
+  POST /chains/track-descendant        -- track a downstream descendant transaction
+  GET  /recovery-cases                 -- list formal recovery cases
+  GET  /recovery-cases/{id}            -- get recovery case
+  POST /recovery-cases/{id}/status     -- update recovery case state & simulated actions
+  GET  /cases/{id}/withdrawals         -- get withdrawal attempts for case
+  GET  /cases/{id}/locations           -- get chronological location history for case
+  GET  /terminals/{id}/nearby          -- get ranked nearby terminals
+  GET  /accounts/{id}/terminal-history -- get account terminal recurrence history
 """
 from __future__ import annotations
 
@@ -37,6 +49,8 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from detection.transaction_control import TransactionControlManager
+from pipeline.fund_traceability import FundTraceabilityEngine
+from pipeline.geo_intelligence import WithdrawalGeoIntelligence
 from shared.persistence import Store
 
 BANKS = ["HDFC-SIM", "ICICI-SIM", "SBI-SIM"]
@@ -48,6 +62,8 @@ _WITHDRAWAL_ATTEMPTS: list = [] # list of attempt logs
 
 _STORE: Optional[Store] = None
 _CONTROL_MGR: Optional[TransactionControlManager] = None
+_TRACE_ENGINE: Optional[FundTraceabilityEngine] = None
+_GEO_INTEL: Optional[WithdrawalGeoIntelligence] = None
 
 
 def _get_store() -> Store:
@@ -62,6 +78,20 @@ def _get_control_manager() -> TransactionControlManager:
     if _CONTROL_MGR is None:
         _CONTROL_MGR = TransactionControlManager(store=_get_store())
     return _CONTROL_MGR
+
+
+def _get_trace_engine() -> FundTraceabilityEngine:
+    global _TRACE_ENGINE
+    if _TRACE_ENGINE is None:
+        _TRACE_ENGINE = FundTraceabilityEngine(store=_get_store())
+    return _TRACE_ENGINE
+
+
+def _get_geo_intel() -> WithdrawalGeoIntelligence:
+    global _GEO_INTEL
+    if _GEO_INTEL is None:
+        _GEO_INTEL = WithdrawalGeoIntelligence(store=_get_store())
+    return _GEO_INTEL
 
 
 def _bank_for(account_id: str) -> str:
@@ -157,36 +187,6 @@ def _record_terminal_block(body: dict) -> dict:
     return record
 
 
-def _record_withdrawal_attempt(body: dict) -> dict:
-    tid = str(body.get("terminal_id", "UNKNOWN"))
-    acc_id = str(body.get("account_id", "UNKNOWN"))
-    amount = float(body.get("amount_inr", 0.0))
-
-    # Check if terminal or account is blocked
-    has_terminal_block = any(b["status"] == "ACTIVE" for b in _TERMINAL_BLOCKS.get(tid, []))
-    acc_status = _ACCOUNTS.get(acc_id, {}).get("status", "ACTIVE")
-    is_blocked = has_terminal_block or acc_status in ("FROZEN", "HOLD", "PROVISIONAL_HOLD", "SELECTIVE_HOLD")
-
-    status_str = "BLOCKED" if is_blocked else "ALLOWED"
-    action_str = "BLOCK_WITHDRAWAL" if is_blocked else "ALLOW_WITHDRAWAL"
-    reason = "Terminal or Account Cashout Interception Active" if is_blocked else "Clean standard withdrawal"
-
-    record = {
-        "attempt_id": body.get("attempt_id", f"ATT-{hashlib.md5(f'{tid}{acc_id}{amount}'.encode()).hexdigest()[:8]}"),
-        "terminal_id": tid,
-        "account_id": acc_id,
-        "amount_inr": amount,
-        "timestamp": body.get("timestamp", datetime.now(timezone.utc).isoformat()),
-        "status": status_str,
-        "action": action_str,
-        "reason": reason,
-        "correlated_case_id": body.get("case_id"),
-    }
-    _WITHDRAWAL_ATTEMPTS.append(record)
-    print(f"[ATM_SWITCH] Cashout attempt at {tid} by {acc_id} for ₹{amount:,.2f} -> {status_str} ({reason})")
-    return record
-
-
 class Handler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, indent=2).encode("utf-8")
@@ -213,19 +213,37 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         store = _get_store()
         ctrl = _get_control_manager()
+        trace = _get_trace_engine()
+        geo = _get_geo_intel()
 
         if parts == ["accounts"]:
             self._send_json(200, {"accounts": _ACCOUNTS})
         elif len(parts) == 2 and parts[0] == "accounts":
             account_id = parts[1]
             self._send_json(200, _get_or_create(account_id))
+        elif len(parts) == 3 and parts[0] == "accounts" and parts[2] == "exposure":
+            exp = trace.get_account_exposure_query(parts[1])
+            if exp:
+                self._send_json(200, exp.to_dict() if hasattr(exp, "to_dict") else exp)
+            else:
+                self._send_json(200, {"account_id": parts[1], "legitimate_balance": 20000.0, "suspicious_exposure": 0.0, "total_balance": 20000.0})
+        elif len(parts) == 3 and parts[0] == "accounts" and parts[2] == "convergent":
+            conv = trace.get_convergent_chains(parts[1])
+            self._send_json(200, conv.to_dict() if hasattr(conv, "to_dict") else conv)
+        elif len(parts) == 3 and parts[0] == "accounts" and parts[2] in ("terminal-history", "terminal_history"):
+            hist = geo.get_account_terminal_history(parts[1])
+            self._send_json(200, hist)
         elif parts in (["terminal", "blocks"], ["terminals", "blocks"]):
             self._send_json(200, {"blocks": _TERMINAL_BLOCKS})
         elif len(parts) == 3 and parts[0] in ("terminal", "terminals") and parts[2] == "blocks":
             tid = parts[1]
             self._send_json(200, {"terminal_id": tid, "blocks": _TERMINAL_BLOCKS.get(tid, [])})
         elif parts in (["terminal", "attempts"], ["terminals", "attempts"]):
-            self._send_json(200, {"attempts": _WITHDRAWAL_ATTEMPTS})
+            attempts = store.get_withdrawal_attempts(limit=100)
+            self._send_json(200, {"attempts": attempts})
+        elif len(parts) == 3 and parts[0] in ("terminals", "terminal") and parts[2] == "nearby":
+            nearby = geo.find_nearby_terminals(parts[1], radius_km=5.0, limit=5)
+            self._send_json(200, {"terminal_id": parts[1], "nearby_terminals": nearby})
         elif parts == ["confirmations"]:
             ctrl.check_timeouts()
             confs = store.recent_confirmations(limit=100)
@@ -246,6 +264,39 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, rec.to_dict() if hasattr(rec, "to_dict") else rec)
             else:
                 self._send_json(404, {"error": "recovery workflow not found"})
+        elif parts == ["chains"]:
+            chains = store.recent_chains(limit=100)
+            self._send_json(200, {"chains": [c.to_dict() if hasattr(c, "to_dict") else c for c in chains]})
+        elif len(parts) == 2 and parts[0] == "chains":
+            chain = trace.get_transaction_chain(parts[1])
+            if chain:
+                self._send_json(200, chain.to_dict() if hasattr(chain, "to_dict") else chain)
+            else:
+                self._send_json(404, {"error": "chain not found"})
+        elif len(parts) == 4 and parts[0] == "chains" and parts[1] == "account" and parts[3] == "exposure":
+            exp = trace.get_account_exposure_query(parts[2])
+            if exp:
+                self._send_json(200, exp.to_dict() if hasattr(exp, "to_dict") else exp)
+            else:
+                self._send_json(200, {"account_id": parts[2], "legitimate_balance": 20000.0, "suspicious_exposure": 0.0, "total_balance": 20000.0})
+        elif len(parts) == 4 and parts[0] == "chains" and parts[1] == "account" and parts[3] == "convergent":
+            conv = trace.get_convergent_chains(parts[2])
+            self._send_json(200, conv.to_dict() if hasattr(conv, "to_dict") else conv)
+        elif parts in (["recovery-cases"], ["recovery_cases"]):
+            cases = store.recent_recovery_cases(limit=100)
+            self._send_json(200, {"recovery_cases": [c.to_dict() if hasattr(c, "to_dict") else c for c in cases]})
+        elif len(parts) == 2 and parts[0] in ("recovery-cases", "recovery_cases"):
+            case_rec = trace.get_recovery_case_query(parts[1])
+            if case_rec:
+                self._send_json(200, case_rec.to_dict() if hasattr(case_rec, "to_dict") else case_rec)
+            else:
+                self._send_json(404, {"error": "recovery case not found"})
+        elif len(parts) == 3 and parts[0] == "cases" and parts[2] == "withdrawals":
+            withdrawals = geo.get_case_withdrawals(parts[1])
+            self._send_json(200, {"case_id": parts[1], "withdrawal_attempts": withdrawals})
+        elif len(parts) == 3 and parts[0] == "cases" and parts[2] == "locations":
+            locations = geo.get_case_location_history(parts[1])
+            self._send_json(200, {"case_id": parts[1], "locations": [loc.to_dict() for loc in locations]})
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -253,6 +304,8 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         body = self._read_body()
         ctrl = _get_control_manager()
+        trace = _get_trace_engine()
+        geo = _get_geo_intel()
 
         # Account actions: freeze, hold, selective_hold, notify, unfreeze
         if len(parts) == 3 and parts[0] == "accounts" and parts[2] in {"freeze", "hold", "selective_hold", "selective-hold", "notify", "unfreeze"}:
@@ -265,10 +318,24 @@ class Handler(BaseHTTPRequestHandler):
             res = _record_terminal_block(body)
             self._send_json(200, {"status": "SUCCESS", "block": res})
         elif parts == ["terminal", "attempt"] or (len(parts) == 3 and parts[0] in ("terminal", "terminals") and parts[2] == "attempt"):
-            if len(parts) == 3:
-                body["terminal_id"] = parts[1]
-            res = _record_withdrawal_attempt(body)
-            self._send_json(200, {"status": "SUCCESS", "attempt": res})
+            tid = body.get("terminal_id", parts[1] if len(parts) == 3 else "UNKNOWN")
+            acc_id = body.get("account_id", "UNKNOWN")
+            amt = float(body.get("amount_inr", body.get("amount", 0.0)))
+            att_id = body.get("attempt_id", f"ATT-{hashlib.md5(f'{tid}{acc_id}{amt}'.encode()).hexdigest()[:8]}")
+
+            attempt_event = geo.process_withdrawal_attempt(
+                attempt_id=att_id,
+                account_id=acc_id,
+                terminal_id=tid,
+                amount_inr=amt,
+                timestamp=body.get("timestamp"),
+                latitude=body.get("latitude"),
+                longitude=body.get("longitude"),
+                payment_channel=body.get("payment_channel", body.get("channel", "ATM")),
+                case_id=body.get("case_id"),
+                existing_balance=float(body.get("existing_balance", 20000.0)),
+            )
+            self._send_json(200, {"status": "SUCCESS", "attempt": attempt_event.to_dict()})
         elif parts == ["confirmations", "request"]:
             rec = ctrl.request_confirmation(
                 transaction_id=str(body.get("transaction_id", "")),
@@ -309,6 +376,36 @@ class Handler(BaseHTTPRequestHandler):
                 existing_balance=float(body.get("existing_balance", 20000.0)),
             )
             self._send_json(200, {"status": "SUCCESS", "decision": decision.to_dict()})
+        elif parts in (["chains", "track-descendant"], ["chains", "track_descendant"]):
+            updated = trace.track_descendant_transaction(
+                parent_transaction_id=body.get("parent_transaction_id"),
+                child_transaction_id=str(body.get("child_transaction_id", "")),
+                from_account_id=str(body.get("from_account_id", "")),
+                to_account_id=str(body.get("to_account_id", "")),
+                amount_inr=float(body.get("amount_inr", 0.0)),
+                payment_channel=str(body.get("payment_channel", "UPI")),
+                timestamp=body.get("timestamp"),
+                is_cashout=bool(body.get("is_cashout", False)),
+                terminal_id=body.get("terminal_id"),
+            )
+            self._send_json(200, {"status": "SUCCESS", "chains_updated": [c.to_dict() for c in updated]})
+        elif len(parts) == 3 and parts[0] in ("recovery-cases", "recovery_cases") and parts[2] == "status":
+            case_id = parts[1]
+            new_status = body.get("status", "")
+            rec_amt = float(body.get("recovered_amount", 0.0))
+            notes = body.get("notes", "")
+            try:
+                updated_case = trace.update_recovery_status(
+                    case_id=case_id,
+                    new_status=new_status,
+                    recovered_amount=rec_amt,
+                    action_note=notes,
+                )
+                self._send_json(200, {"status": "SUCCESS", "recovery_case": updated_case.to_dict()})
+            except KeyError as e:
+                self._send_json(404, {"error": str(e)})
+            except Exception as e:
+                self._send_json(400, {"error": str(e)})
         else:
             self._send_json(404, {"error": "not found"})
 

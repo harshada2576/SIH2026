@@ -533,11 +533,20 @@ class WithdrawalAttemptEvent:
     account_id: str
     amount_inr: float
     timestamp: Union[str, datetime] = field(default_factory=lambda: datetime.now(timezone.utc))
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    payment_channel: str = "ATM"
     correlated_case_id: Optional[str] = None
     is_blocked: bool = False
-    action_taken: str = "MONITORED"  # BLOCKED | FLAGGED | INTERCEPTED | ALLOWED
+    action_taken: str = "MONITORED"  # BLOCKED | FLAGGED | INTERCEPTED | ALLOWED | MONITORED
+    status: Optional[str] = None     # ALLOWED | BLOCKED | INTERCEPTED | FLAGGED
+    reason: Optional[str] = None
     distance_to_predicted_km: Optional[float] = None
     nearby_terminals: List[Dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self):
+        if self.status is None:
+            self.status = "BLOCKED" if self.is_blocked else (self.action_taken if self.action_taken in {"ALLOWED", "BLOCKED", "INTERCEPTED", "FLAGGED"} else "ALLOWED")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -546,12 +555,39 @@ class WithdrawalAttemptEvent:
             "account_id": self.account_id,
             "amount_inr": self.amount_inr,
             "timestamp": _format_iso(self.timestamp),
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "payment_channel": self.payment_channel,
             "correlated_case_id": self.correlated_case_id,
             "is_blocked": self.is_blocked,
             "action_taken": self.action_taken,
+            "status": self.status,
+            "reason": self.reason,
             "distance_to_predicted_km": self.distance_to_predicted_km,
-            "nearby_terminals": self.nearby_terminals,
+            "nearby_terminals": list(self.nearby_terminals),
         }
+
+
+@dataclass
+class LocationEvidenceRecord:
+    """Chronological physical ATM / terminal location event associated with an investigation case."""
+
+    case_id: str
+    terminal_id: str
+    terminal_type: str = "ATM_KIOSK"
+    district: str = ""
+    district_pincode: str = ""
+    latitude: float = 0.0
+    longitude: float = 0.0
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    event_type: str = "RECORDED_WITHDRAWAL"  # RECORDED_WITHDRAWAL | PREDICTED_EGRESS
+    amount_inr: Optional[float] = None
+    action_taken: str = "MONITORED"
+    status: str = "RECORDED"
+    distance_from_predicted_km: Optional[float] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -769,5 +805,168 @@ class RecoveryWorkflowRecord:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
+
+
+# ============================================================================
+# 9. FUND TRACEABILITY & RECOVERY (Part 2 - SIH26184)
+# ============================================================================
+
+class RecoveryState:
+    """Explicit lifecycle states for fraud recovery workflows."""
+
+    NOT_STARTED = "NOT_STARTED"
+    TRACING = "TRACING"
+    INTERVENTION_PENDING = "INTERVENTION_PENDING"
+    RECOVERY_PENDING = "RECOVERY_PENDING"
+    PARTIALLY_RECOVERED = "PARTIALLY_RECOVERED"
+    RECOVERED = "RECOVERED"
+    UNRECOVERABLE = "UNRECOVERABLE"
+
+
+@dataclass
+class AccountExposureRecord:
+    """Maintains traceable suspicious exposure alongside legitimate balances for commingled accounts."""
+
+    account_id: str
+    legitimate_balance: float = 0.0
+    suspicious_exposure: float = 0.0
+    total_balance: float = 0.0
+    contributing_root_transactions: List[str] = field(default_factory=list)
+    active_chains: List[str] = field(default_factory=list)
+    last_updated: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def __post_init__(self):
+        if self.total_balance == 0.0 and (self.legitimate_balance > 0 or self.suspicious_exposure > 0):
+            self.total_balance = self.legitimate_balance + self.suspicious_exposure
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "account_id": self.account_id,
+            "legitimate_balance": self.legitimate_balance,
+            "suspicious_exposure": self.suspicious_exposure,
+            "total_balance": self.total_balance,
+            "contributing_root_transactions": list(self.contributing_root_transactions),
+            "active_chains": list(self.active_chains),
+            "last_updated": self.last_updated,
+        }
+
+
+@dataclass
+class TransactionChainEdge:
+    """A single directed leg in a downstream fund provenance chain."""
+
+    chain_id: str
+    parent_transaction_id: Optional[str]
+    child_transaction_id: str
+    from_account_id: str
+    to_account_id: str
+    amount_inr: float
+    payment_channel: str
+    timestamp: str
+    hop_depth: int = 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class TransactionChainRecord:
+    """Complete downstream money trail and provenance metadata rooted at an originating transaction."""
+
+    chain_id: str
+    root_transaction_id: str
+    origin_account_id: str
+    destination_account_chain: List[str] = field(default_factory=list)
+    original_amount: float = 0.0
+    traceable_transactions: List[Dict[str, Any]] = field(default_factory=list)
+    current_known_accounts: List[str] = field(default_factory=list)
+    known_withdrawals: List[Dict[str, Any]] = field(default_factory=list)
+    traceable_exposed_amounts: Dict[str, float] = field(default_factory=dict)
+    chain_depth: int = 1
+    chain_status: str = "ACTIVE"
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "chain_id": self.chain_id,
+            "root_transaction_id": self.root_transaction_id,
+            "origin_account_id": self.origin_account_id,
+            "destination_account_chain": list(self.destination_account_chain),
+            "original_amount": self.original_amount,
+            "traceable_transactions": list(self.traceable_transactions),
+            "current_known_accounts": list(self.current_known_accounts),
+            "known_withdrawals": list(self.known_withdrawals),
+            "traceable_exposed_amounts": dict(self.traceable_exposed_amounts),
+            "chain_depth": self.chain_depth,
+            "chain_status": self.chain_status,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+@dataclass
+class RecoveryCaseRecord:
+    """Formal investigation recovery case tracking funds across the entire downstream money trail."""
+
+    case_id: str
+    root_transaction_id: str
+    chain_id: str
+    origin_account: str
+    destination_account_chain: List[str] = field(default_factory=list)
+    original_amount: float = 0.0
+    traceable_transactions: List[Dict[str, Any]] = field(default_factory=list)
+    current_known_accounts: List[str] = field(default_factory=list)
+    known_withdrawals: List[Dict[str, Any]] = field(default_factory=list)
+    traceable_exposed_amounts: Dict[str, float] = field(default_factory=dict)
+    recovery_status: str = RecoveryState.NOT_STARTED
+    recovered_amount: float = 0.0
+    simulated_actions: List[Dict[str, Any]] = field(default_factory=list)
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "case_id": self.case_id,
+            "root_transaction_id": self.root_transaction_id,
+            "chain_id": self.chain_id,
+            "origin_account": self.origin_account,
+            "destination_account_chain": list(self.destination_account_chain),
+            "original_amount": self.original_amount,
+            "traceable_transactions": list(self.traceable_transactions),
+            "current_known_accounts": list(self.current_known_accounts),
+            "known_withdrawals": list(self.known_withdrawals),
+            "traceable_exposed_amounts": dict(self.traceable_exposed_amounts),
+            "recovery_status": self.recovery_status,
+            "recovered_amount": self.recovered_amount,
+            "simulated_actions": list(self.simulated_actions),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
+@dataclass
+class ConvergentChainsRecord:
+    """Aggregates multiple victim transactions converging into a common aggregator or mule account."""
+
+    common_account_id: str
+    source_transactions: List[Dict[str, Any]] = field(default_factory=list)
+    root_transaction_ids: List[str] = field(default_factory=list)
+    chain_ids: List[str] = field(default_factory=list)
+    aggregate_suspicious_exposure: float = 0.0
+    downstream_chain: List[Dict[str, Any]] = field(default_factory=list)
+    related_case_ids: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "common_account_id": self.common_account_id,
+            "source_transactions": list(self.source_transactions),
+            "root_transaction_ids": list(self.root_transaction_ids),
+            "chain_ids": list(self.chain_ids),
+            "aggregate_suspicious_exposure": self.aggregate_suspicious_exposure,
+            "downstream_chain": list(self.downstream_chain),
+            "related_case_ids": list(self.related_case_ids),
+        }
+
 
 

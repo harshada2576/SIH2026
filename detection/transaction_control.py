@@ -18,6 +18,7 @@ from typing import Optional, Dict, List, Any
 
 from audit.blockchain_lite import AuditLedger
 from pipeline.graph_store import GraphStore
+from pipeline.fund_traceability import FundTraceabilityEngine
 from shared.persistence import Store
 from shared.schemas import (
     ConfirmationRecord,
@@ -39,10 +40,14 @@ class TransactionControlManager:
         store: Optional[Store] = None,
         graph_store: Optional[GraphStore] = None,
         ledger: Optional[AuditLedger] = None,
+        traceability_engine: Optional[FundTraceabilityEngine] = None,
     ) -> None:
         self.store = store or Store()
         self.graph_store = graph_store or GraphStore()
         self.ledger = ledger or AuditLedger()
+        self.traceability_engine = traceability_engine or FundTraceabilityEngine(
+            store=self.store, graph_store=self.graph_store, ledger=self.ledger
+        )
 
     def request_confirmation(
         self,
@@ -77,6 +82,18 @@ class TransactionControlManager:
         )
 
         self.store.save_confirmation(record)
+
+        # Establish trace root in fund provenance tracker
+        try:
+            self.traceability_engine.establish_trace_root(
+                root_transaction_id=transaction_id,
+                origin_account_id=sender_id,
+                destination_account_id=beneficiary_id,
+                amount_inr=float(amount),
+                chain_status=ConfirmationStatus.PENDING_CONFIRMATION,
+            )
+        except Exception as e:
+            log.warning(f"Could not establish trace root for tx {transaction_id}: {e}")
 
         self.ledger.append({
             "event": "CONFIRMATION_REQUESTED",
@@ -240,6 +257,16 @@ class TransactionControlManager:
         )
 
         self.store.save_recovery_workflow(workflow)
+
+        # Trigger formal recovery case in fund traceability engine
+        try:
+            self.traceability_engine.handle_fraud_confirmation(
+                root_transaction_id=tx_id,
+                case_id=case_id,
+                notes=record.get("notes", ""),
+            )
+        except Exception as e:
+            log.warning(f"Could not trigger recovery case for tx {tx_id}: {e}")
 
         self.ledger.append({
             "event": "RECOVERY_WORKFLOW_INITIATED",

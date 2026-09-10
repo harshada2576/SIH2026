@@ -164,6 +164,65 @@ CREATE TABLE IF NOT EXISTS recovery_workflows (
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS transaction_chains (
+    chain_id TEXT PRIMARY KEY,
+    root_transaction_id TEXT NOT NULL,
+    origin_account_id TEXT NOT NULL,
+    destination_account_chain_json TEXT,
+    original_amount REAL NOT NULL,
+    traceable_transactions_json TEXT,
+    current_known_accounts_json TEXT,
+    known_withdrawals_json TEXT,
+    traceable_exposed_amounts_json TEXT,
+    chain_depth INTEGER DEFAULT 1,
+    chain_status TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS chain_edges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chain_id TEXT NOT NULL,
+    parent_transaction_id TEXT,
+    child_transaction_id TEXT NOT NULL,
+    from_account_id TEXT NOT NULL,
+    to_account_id TEXT NOT NULL,
+    amount_inr REAL NOT NULL,
+    payment_channel TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    hop_depth INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(chain_id, child_transaction_id)
+);
+
+CREATE TABLE IF NOT EXISTS account_exposures (
+    account_id TEXT PRIMARY KEY,
+    legitimate_balance REAL NOT NULL,
+    suspicious_exposure REAL NOT NULL,
+    total_balance REAL NOT NULL,
+    contributing_root_transactions_json TEXT,
+    active_chains_json TEXT,
+    last_updated TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS recovery_cases (
+    case_id TEXT PRIMARY KEY,
+    root_transaction_id TEXT NOT NULL,
+    chain_id TEXT NOT NULL,
+    origin_account TEXT NOT NULL,
+    destination_account_chain_json TEXT,
+    original_amount REAL NOT NULL,
+    traceable_transactions_json TEXT,
+    current_known_accounts_json TEXT,
+    known_withdrawals_json TEXT,
+    traceable_exposed_amounts_json TEXT,
+    recovery_status TEXT NOT NULL,
+    recovered_amount REAL DEFAULT 0.0,
+    simulated_actions_json TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -313,10 +372,13 @@ class Store:
             return None
         cols = [d[0] for d in cur.description]
         rec = dict(zip(cols, row))
-        for json_col in ("money_trail_json", "predicted_terminals_json", "evidence_json", "withdrawal_attempts_json"):
-            if rec.get(json_col):
+        for json_col in ("money_trail", "predicted_terminals", "evidence", "withdrawal_attempts"):
+            json_key = f"{json_col}_json"
+            if rec.get(json_key):
                 try:
-                    rec[json_col] = json.loads(rec[json_col])
+                    val = json.loads(rec[json_key])
+                    rec[json_col] = val
+                    rec[json_key] = val
                 except Exception:
                     pass
         return rec
@@ -329,10 +391,13 @@ class Store:
         rows = []
         for r in cur.fetchall():
             rec = dict(zip(cols, r))
-            for json_col in ("money_trail_json", "predicted_terminals_json", "evidence_json", "withdrawal_attempts_json"):
-                if rec.get(json_col):
+            for json_col in ("money_trail", "predicted_terminals", "evidence", "withdrawal_attempts"):
+                json_key = f"{json_col}_json"
+                if rec.get(json_key):
                     try:
-                        rec[json_col] = json.loads(rec[json_col])
+                        val = json.loads(rec[json_key])
+                        rec[json_col] = val
+                        rec[json_key] = val
                     except Exception:
                         pass
             rows.append(rec)
@@ -462,6 +527,20 @@ class Store:
         cur = self._conn.execute(query, tuple(params))
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def get_withdrawal_attempt(self, attempt_id: str) -> Optional[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM withdrawal_attempts WHERE attempt_id = ?",
+            (str(attempt_id),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        cols = [d[0] for d in cur.description]
+        rec = dict(zip(cols, row))
+        if rec.get("details_json"):
+            rec["nearby_terminals"] = json.loads(rec["details_json"])
+        return rec
 
     def record_terminal_activity(self, account_id: str, terminal_id: str, timestamp: str) -> int:
         """Record account usage at a physical terminal and return total count for that pair."""
@@ -664,6 +743,261 @@ class Store:
             results.append(rec)
         return results
 
+    # ------------------------------------------------------------------------
+    # Part 2: Fund Traceability & Recovery Persistence
+    # ------------------------------------------------------------------------
+
+    def save_chain(self, chain: Any) -> None:
+        """Persist or update transaction provenance chain record."""
+        data = chain.to_dict() if hasattr(chain, "to_dict") else dict(chain)
+        self._conn.execute(
+            """
+            INSERT INTO transaction_chains (
+                chain_id, root_transaction_id, origin_account_id,
+                destination_account_chain_json, original_amount, traceable_transactions_json,
+                current_known_accounts_json, known_withdrawals_json, traceable_exposed_amounts_json,
+                chain_depth, chain_status, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(chain_id) DO UPDATE SET
+                destination_account_chain_json = excluded.destination_account_chain_json,
+                traceable_transactions_json = excluded.traceable_transactions_json,
+                current_known_accounts_json = excluded.current_known_accounts_json,
+                known_withdrawals_json = excluded.known_withdrawals_json,
+                traceable_exposed_amounts_json = excluded.traceable_exposed_amounts_json,
+                chain_depth = excluded.chain_depth,
+                chain_status = excluded.chain_status,
+                updated_at = datetime('now')
+            """,
+            (
+                str(data["chain_id"]),
+                str(data["root_transaction_id"]),
+                str(data["origin_account_id"]),
+                json.dumps(data.get("destination_account_chain", [])),
+                float(data["original_amount"]),
+                json.dumps(data.get("traceable_transactions", [])),
+                json.dumps(data.get("current_known_accounts", [])),
+                json.dumps(data.get("known_withdrawals", [])),
+                json.dumps(data.get("traceable_exposed_amounts", {})),
+                int(data.get("chain_depth", 1)),
+                str(data.get("chain_status", "ACTIVE")),
+            ),
+        )
+        self._conn.commit()
+
+    def _hydrate_chain(self, cur, row) -> Optional[Dict[str, Any]]:
+        if not row:
+            return None
+        cols = [d[0] for d in cur.description]
+        rec = dict(zip(cols, row))
+        if rec.get("destination_account_chain_json"):
+            rec["destination_account_chain"] = json.loads(rec["destination_account_chain_json"])
+        if rec.get("traceable_transactions_json"):
+            rec["traceable_transactions"] = json.loads(rec["traceable_transactions_json"])
+        if rec.get("current_known_accounts_json"):
+            rec["current_known_accounts"] = json.loads(rec["current_known_accounts_json"])
+        if rec.get("known_withdrawals_json"):
+            rec["known_withdrawals"] = json.loads(rec["known_withdrawals_json"])
+        if rec.get("traceable_exposed_amounts_json"):
+            rec["traceable_exposed_amounts"] = json.loads(rec["traceable_exposed_amounts_json"])
+        return rec
+
+    def get_chain(self, chain_id: str) -> Optional[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM transaction_chains WHERE chain_id = ?",
+            (str(chain_id),),
+        )
+        return self._hydrate_chain(cur, cur.fetchone())
+
+    def get_chain_by_root_tx(self, root_transaction_id: str) -> Optional[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM transaction_chains WHERE root_transaction_id = ? ORDER BY created_at DESC LIMIT 1",
+            (str(root_transaction_id),),
+        )
+        return self._hydrate_chain(cur, cur.fetchone())
+
+    def recent_chains(self, limit: int = 20) -> List[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM transaction_chains ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        rows = cur.fetchall()
+        return [self._hydrate_chain(cur, r) for r in rows if r]
+
+    def save_chain_edge(self, edge: Any) -> bool:
+        """Persist a single child/edge in a chain idempotently."""
+        data = edge.to_dict() if hasattr(edge, "to_dict") else dict(edge)
+        cur = self._conn.execute(
+            """
+            INSERT OR IGNORE INTO chain_edges (
+                chain_id, parent_transaction_id, child_transaction_id, from_account_id,
+                to_account_id, amount_inr, payment_channel, timestamp, hop_depth
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(data["chain_id"]),
+                str(data["parent_transaction_id"]) if data.get("parent_transaction_id") else None,
+                str(data["child_transaction_id"]),
+                str(data["from_account_id"]),
+                str(data["to_account_id"]),
+                float(data["amount_inr"]),
+                str(data["payment_channel"]),
+                str(data["timestamp"]),
+                int(data.get("hop_depth", 1)),
+            ),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def get_chain_edges(self, chain_id: str) -> List[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM chain_edges WHERE chain_id = ? ORDER BY hop_depth ASC, created_at ASC",
+            (str(chain_id),),
+        )
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    def save_account_exposure(self, exposure: Any) -> None:
+        """Persist or update an account's exposure and legitimate balances."""
+        data = exposure.to_dict() if hasattr(exposure, "to_dict") else dict(exposure)
+        self._conn.execute(
+            """
+            INSERT INTO account_exposures (
+                account_id, legitimate_balance, suspicious_exposure, total_balance,
+                contributing_root_transactions_json, active_chains_json, last_updated
+            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(account_id) DO UPDATE SET
+                legitimate_balance = excluded.legitimate_balance,
+                suspicious_exposure = excluded.suspicious_exposure,
+                total_balance = excluded.total_balance,
+                contributing_root_transactions_json = excluded.contributing_root_transactions_json,
+                active_chains_json = excluded.active_chains_json,
+                last_updated = datetime('now')
+            """,
+            (
+                str(data["account_id"]),
+                float(data.get("legitimate_balance", 0.0)),
+                float(data.get("suspicious_exposure", 0.0)),
+                float(data.get("total_balance", 0.0)),
+                json.dumps(data.get("contributing_root_transactions", [])),
+                json.dumps(data.get("active_chains", [])),
+            ),
+        )
+        self._conn.commit()
+
+    def get_account_exposure(self, account_id: str) -> Optional[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM account_exposures WHERE account_id = ?",
+            (str(account_id),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        cols = [d[0] for d in cur.description]
+        rec = dict(zip(cols, row))
+        if rec.get("contributing_root_transactions_json"):
+            rec["contributing_root_transactions"] = json.loads(rec["contributing_root_transactions_json"])
+        if rec.get("active_chains_json"):
+            rec["active_chains"] = json.loads(rec["active_chains_json"])
+        return rec
+
+    def recent_account_exposures(self, limit: int = 20) -> List[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM account_exposures ORDER BY last_updated DESC LIMIT ?",
+            (limit,),
+        )
+        cols = [d[0] for d in cur.description]
+        results = []
+        for row in cur.fetchall():
+            rec = dict(zip(cols, row))
+            if rec.get("contributing_root_transactions_json"):
+                rec["contributing_root_transactions"] = json.loads(rec["contributing_root_transactions_json"])
+            if rec.get("active_chains_json"):
+                rec["active_chains"] = json.loads(rec["active_chains_json"])
+            results.append(rec)
+        return results
+
+    def save_recovery_case(self, case: Any) -> None:
+        """Persist or update formal recovery case record."""
+        data = case.to_dict() if hasattr(case, "to_dict") else dict(case)
+        self._conn.execute(
+            """
+            INSERT INTO recovery_cases (
+                case_id, root_transaction_id, chain_id, origin_account,
+                destination_account_chain_json, original_amount, traceable_transactions_json,
+                current_known_accounts_json, known_withdrawals_json, traceable_exposed_amounts_json,
+                recovery_status, recovered_amount, simulated_actions_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(case_id) DO UPDATE SET
+                destination_account_chain_json = excluded.destination_account_chain_json,
+                traceable_transactions_json = excluded.traceable_transactions_json,
+                current_known_accounts_json = excluded.current_known_accounts_json,
+                known_withdrawals_json = excluded.known_withdrawals_json,
+                traceable_exposed_amounts_json = excluded.traceable_exposed_amounts_json,
+                recovery_status = excluded.recovery_status,
+                recovered_amount = excluded.recovered_amount,
+                simulated_actions_json = excluded.simulated_actions_json,
+                updated_at = datetime('now')
+            """,
+            (
+                str(data["case_id"]),
+                str(data["root_transaction_id"]),
+                str(data["chain_id"]),
+                str(data["origin_account"]),
+                json.dumps(data.get("destination_account_chain", [])),
+                float(data["original_amount"]),
+                json.dumps(data.get("traceable_transactions", [])),
+                json.dumps(data.get("current_known_accounts", [])),
+                json.dumps(data.get("known_withdrawals", [])),
+                json.dumps(data.get("traceable_exposed_amounts", {})),
+                str(data.get("recovery_status", "NOT_STARTED")),
+                float(data.get("recovered_amount", 0.0)),
+                json.dumps(data.get("simulated_actions", [])),
+            ),
+        )
+        self._conn.commit()
+
+    def _hydrate_recovery_case(self, cur, row) -> Optional[Dict[str, Any]]:
+        if not row:
+            return None
+        cols = [d[0] for d in cur.description]
+        rec = dict(zip(cols, row))
+        if rec.get("destination_account_chain_json"):
+            rec["destination_account_chain"] = json.loads(rec["destination_account_chain_json"])
+        if rec.get("traceable_transactions_json"):
+            rec["traceable_transactions"] = json.loads(rec["traceable_transactions_json"])
+        if rec.get("current_known_accounts_json"):
+            rec["current_known_accounts"] = json.loads(rec["current_known_accounts_json"])
+        if rec.get("known_withdrawals_json"):
+            rec["known_withdrawals"] = json.loads(rec["known_withdrawals_json"])
+        if rec.get("traceable_exposed_amounts_json"):
+            rec["traceable_exposed_amounts"] = json.loads(rec["traceable_exposed_amounts_json"])
+        if rec.get("simulated_actions_json"):
+            rec["simulated_actions"] = json.loads(rec["simulated_actions_json"])
+        return rec
+
+    def get_recovery_case(self, case_id: str) -> Optional[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM recovery_cases WHERE case_id = ?",
+            (str(case_id),),
+        )
+        return self._hydrate_recovery_case(cur, cur.fetchone())
+
+    def get_recovery_case_by_root_tx(self, root_tx_id: str) -> Optional[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM recovery_cases WHERE root_transaction_id = ? ORDER BY created_at DESC LIMIT 1",
+            (str(root_tx_id),),
+        )
+        return self._hydrate_recovery_case(cur, cur.fetchone())
+
+    def recent_recovery_cases(self, limit: int = 20) -> List[Dict[str, Any]]:
+        cur = self._conn.execute(
+            "SELECT * FROM recovery_cases ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        rows = cur.fetchall()
+        return [self._hydrate_recovery_case(cur, r) for r in rows if r]
+
     def close(self) -> None:
         self._conn.close()
+
 

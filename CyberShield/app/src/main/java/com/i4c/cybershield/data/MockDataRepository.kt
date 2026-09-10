@@ -243,7 +243,7 @@ object MockDataRepository {
         )
     )
 
-    // ─── Detailed Investigation Case (SIH26184) ──────────────────────
+    // ─── Detailed Investigation Cases (SIH26184) ─────────────────────
     val primaryDetailedHops = listOf(
         DetailedTrailHop(
             hopNumber = 1,
@@ -309,15 +309,84 @@ object MockDataRepository {
         riskMultiplier = 1.5
     )
 
+    val primaryConfirmation = TransactionConfirmationInfo(
+        txnId = "TXN-SCENARIO-03",
+        payerAccount = "ACC-VICTIM-01",
+        amount = "₹1,00,000",
+        status = ConfirmationStatus.CONFIRMED_FRAUD,
+        promptChannel = "SMS + CBS Push Notification",
+        requestedAt = "10:14:30 AM",
+        respondedAt = "10:15:10 AM",
+        explanatoryNote = "Victim flagged transfer as unauthorized OTP compromise within 40 seconds."
+    )
+
+    val primaryWithdrawalAttempts = listOf(
+        RecordedWithdrawal(
+            attemptId = "ATTEMPT-WD-9941",
+            terminalId = "ATM-SBI-ND-042",
+            terminalName = "Sector 18 SBI ATM #042",
+            amount = "₹50,000",
+            timestamp = "10:32:15 AM",
+            status = WithdrawalAttemptStatus.BLOCKED,
+            channel = "ATM CASH DISPENSE",
+            failureReason = "Provisional CBS Hold active on ACC-AGG-03"
+        ),
+        RecordedWithdrawal(
+            attemptId = "ATTEMPT-WD-9942",
+            terminalId = "ATM-SBI-ND-042",
+            terminalName = "Sector 18 SBI ATM #042",
+            amount = "₹42,000",
+            timestamp = "10:33:02 AM",
+            status = WithdrawalAttemptStatus.BLOCKED,
+            channel = "ATM CASH DISPENSE",
+            failureReason = "Provisional CBS Hold active on ACC-AGG-03"
+        )
+    )
+
+    val primaryTimelineEvents = listOf(
+        LocationTimelineEvent(
+            timestamp = "10:14:22 AM",
+            title = "Root Fraud Inflow",
+            description = "₹1,00,000 sent from ACC-VICTIM-01 to ACC-MULE-A44 via IMPS.",
+            eventType = "ORIGIN"
+        ),
+        LocationTimelineEvent(
+            timestamp = "10:15:10 AM",
+            title = "Payer Confirmation: Fraud",
+            description = "Victim confirmed transaction was fraudulent. Pre-complaint hold triggered.",
+            eventType = "ACTION"
+        ),
+        LocationTimelineEvent(
+            timestamp = "10:18:40 AM",
+            title = "Aggregator Node Convergence",
+            description = "₹92,000 reached ACC-AGG-03 after 3 hops in under 4 minutes.",
+            eventType = "MULE_HOP"
+        ),
+        LocationTimelineEvent(
+            timestamp = "10:20:00 AM",
+            title = "Predictive Radar Triggered",
+            description = "High spatial affinity predicted cashout at ATM-SBI-ND-042 (10:30 - 11:15 AM).",
+            eventType = "PREDICTION"
+        ),
+        LocationTimelineEvent(
+            timestamp = "10:32:15 AM",
+            title = "Cashout Blocked at ATM",
+            description = "Card withdrawal of ₹50,000 blocked by automated selective lien.",
+            eventType = "ATTEMPT"
+        )
+    )
+
     val primaryInvestigationCase = InvestigationCase(
         caseId = "CASE-ALERT-1732",
         flaggedAccount = "ACC-AGG-03",
-        lifecycle = CaseLifecycle.PRE_COMPLAINT_INTERVENTION,
+        lifecycle = CaseLifecycle.CASHOUT_ATTEMPT_DETECTED,
         riskScorePercent = 91,
         confidencePercent = 87,
         suspiciousAmount = "₹92,000",
         targetTerminal = terminalMarkers[0],
         predictedWindow = "10:30 AM – 11:15 AM",
+        summaryNarrative = "Multi-hop layering network converging on aggregator node ACC-AGG-03. Predicted cashout attempt blocked at Sector 18 ATM.",
+        confirmation = primaryConfirmation,
         funds = SelectiveFundBreakdown(
             existingBalance = "₹20,000",
             suspiciousAmount = "₹1,00,000",
@@ -327,6 +396,8 @@ object MockDataRepository {
             isPreComplaint = true
         ),
         trailHops = primaryDetailedHops,
+        withdrawalAttempts = primaryWithdrawalAttempts,
+        timelineEvents = primaryTimelineEvents,
         xaiBreakdown = primaryRiskBreakdown,
         nearbyTerminals = primaryNearbyTerminals,
         recurrence = primaryRecurrence,
@@ -334,6 +405,45 @@ object MockDataRepository {
         atmBlockRequested = true,
         leaNotificationSent = true
     )
+
+    val secondaryInvestigationCase = InvestigationCase(
+        caseId = "CASE-NCRP-994821",
+        flaggedAccount = "ACC-AGG-03",
+        lifecycle = CaseLifecycle.POST_COMPLAINT_ESCALATED,
+        riskScorePercent = 94,
+        confidencePercent = 92,
+        suspiciousAmount = "₹50,00,000",
+        targetTerminal = terminalMarkers[0],
+        predictedWindow = "10:30 AM – 11:15 AM",
+        summaryNarrative = "Formal complaint registered on NCRP portal. Full statutory lien and police dispatch en route.",
+        confirmation = primaryConfirmation,
+        funds = SelectiveFundBreakdown(
+            existingBalance = "₹45,000",
+            suspiciousAmount = "₹50,00,000",
+            protectedAmount = "₹50,00,000",
+            sourceTxn = "TXN-NCRP-8812",
+            holdReason = "Statutory lien under Section 106 BNSS / CFCFRMS",
+            isPreComplaint = false
+        ),
+        trailHops = primaryDetailedHops,
+        withdrawalAttempts = primaryWithdrawalAttempts,
+        timelineEvents = primaryTimelineEvents,
+        xaiBreakdown = primaryRiskBreakdown,
+        nearbyTerminals = primaryNearbyTerminals,
+        recurrence = primaryRecurrence,
+        bankHoldActive = true,
+        atmBlockRequested = true,
+        leaNotificationSent = true
+    )
+
+    val allCases = listOf(
+        primaryInvestigationCase,
+        secondaryInvestigationCase
+    )
+
+    fun getCaseById(caseId: String): InvestigationCase {
+        return allCases.firstOrNull { it.caseId == caseId } ?: primaryInvestigationCase
+    }
 
     // ─── Dispatch Summary Cards ────────────────────────────────────────
     val dispatchSummaries: List<DispatchSummary>

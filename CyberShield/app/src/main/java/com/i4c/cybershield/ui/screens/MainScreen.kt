@@ -118,7 +118,7 @@ fun MainScreen(viewModel: MainViewModel) {
                     complaint = primaryComplaint,
                     moneyTrail = MockDataRepository.primaryMoneyTrail,
                     riskBreakdown = MockDataRepository.primaryRiskBreakdown,
-                    investigationCase = MockDataRepository.primaryInvestigationCase,
+                    investigationCase = viewModel.currentInvestigationCase,
                     investigationStatus = viewModel.investigationStatus,
                     showApproveDialog = viewModel.showApproveDialog,
                     showBankHoldDialog = viewModel.showBankHoldDialog,
@@ -136,7 +136,8 @@ fun MainScreen(viewModel: MainViewModel) {
                     pendingReviews = MockDataRepository.pendingReviewItems,
                     auditLog = viewModel.auditLog,
                     onInspectApprove = { ncrpId ->
-                        viewModel.selectTab(1)
+                        val matchingCaseId = if (ncrpId == "NCRP-2026-994821") "CASE-NCRP-994821" else "CASE-ALERT-1732"
+                        viewModel.selectCase(matchingCaseId)
                     }
                 )
             }

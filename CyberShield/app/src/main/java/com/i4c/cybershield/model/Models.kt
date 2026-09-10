@@ -132,6 +132,55 @@ enum class CaseLifecycle(val displayName: String, val badgeColorHex: String) {
     RESOLVED("RESOLVED", "#10B981")
 }
 
+/** Transaction confirmation state */
+enum class ConfirmationStatus(val displayName: String) {
+    PENDING_CONFIRMATION("PENDING CONFIRMATION"),
+    CONFIRMED_LEGITIMATE("CONFIRMED LEGITIMATE"),
+    CONFIRMED_FRAUD("CONFIRMED FRAUD"),
+    EXPIRED("CONFIRMATION EXPIRED"),
+    SKIPPED("CONFIRMATION SKIPPED")
+}
+
+/** Transaction confirmation details */
+data class TransactionConfirmationInfo(
+    val txnId: String,
+    val payerAccount: String,
+    val amount: String,
+    val status: ConfirmationStatus,
+    val promptChannel: String = "SMS + CBS Push Notification",
+    val requestedAt: String,
+    val respondedAt: String? = null,
+    val explanatoryNote: String = "High-velocity transfer requiring explicit victim verification before final clearance."
+)
+
+/** Withdrawal attempt status */
+enum class WithdrawalAttemptStatus(val displayName: String) {
+    BLOCKED("BLOCKED AT TERMINAL"),
+    INTERCEPTED("INTERCEPTED & HELD"),
+    ALLOWED("ALLOWED"),
+    FLAGGED("FLAGGED FOR REVIEW")
+}
+
+/** Recorded withdrawal attempt at an ATM or Micro-ATM */
+data class RecordedWithdrawal(
+    val attemptId: String,
+    val terminalId: String,
+    val terminalName: String,
+    val amount: String,
+    val timestamp: String,
+    val status: WithdrawalAttemptStatus,
+    val channel: String = "ATM CASH DISPENSE",
+    val failureReason: String = "Provisional bank hold active on source aggregator account"
+)
+
+/** Chronological timeline event linking fund movement, predictions, and physical attempts */
+data class LocationTimelineEvent(
+    val timestamp: String,
+    val title: String,
+    val description: String,
+    val eventType: String // "ORIGIN", "MULE_HOP", "PREDICTION", "ATTEMPT", "ACTION"
+)
+
 /** Selective fund protection breakdown */
 data class SelectiveFundBreakdown(
     val existingBalance: String = "₹20,000",
@@ -182,8 +231,12 @@ data class InvestigationCase(
     val suspiciousAmount: String,
     val targetTerminal: TerminalMarker,
     val predictedWindow: String,
+    val summaryNarrative: String = "High-velocity multi-hop mule trail converging onto aggregator node with predicted cashout attempt.",
+    val confirmation: TransactionConfirmationInfo? = null,
     val funds: SelectiveFundBreakdown,
     val trailHops: List<DetailedTrailHop>,
+    val withdrawalAttempts: List<RecordedWithdrawal> = emptyList(),
+    val timelineEvents: List<LocationTimelineEvent> = emptyList(),
     val xaiBreakdown: RiskBreakdown,
     val nearbyTerminals: List<NearbyTerminal>,
     val recurrence: TerminalRecurrence? = null,
@@ -191,4 +244,5 @@ data class InvestigationCase(
     val atmBlockRequested: Boolean = true,
     val leaNotificationSent: Boolean = true
 )
+
 
