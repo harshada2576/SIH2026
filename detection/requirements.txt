@@ -1,0 +1,12 @@
+# Workstream 3 (Detection + Dashboard). Kafka publish + fastapi dashboard deps
+# get added when the alert dispatcher Kafka producer and the dashboard pair's
+# app.py are wired up (integration day).
+pydantic>=1.10,<3
+networkx>=3.0
+pytest>=7.0
+
+# Phase 2 additions:
+scikit-learn>=1.3   # ml_anomaly_rule.py (IsolationForest hybrid rule+ML layer)
+cryptography>=41.0  # audit/blockchain_lite.py (Ed25519 signing of the audit ledger)
+# NOTE: mock_services/* (bank + NCRP/I4C) deliberately use only the Python
+# standard library (http.server) -- zero extra installs needed to run them.

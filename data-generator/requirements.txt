@@ -1,0 +1,12 @@
+# Workstream 1 — Synthetic Data Generator
+# Only the libraries actually needed. Kafka is optional for generate.py itself
+# (only producer.py needs it), kept in the same file for a single install step.
+#
+# NOTE: using kafka-python-ng, not kafka-python. The original kafka-python
+# package (last released 2021) is broken on Python 3.12+ due to a
+# kafka.vendor.six.moves import bug. kafka-python-ng is a maintained,
+# drop-in-compatible fork that fixes this — same `from kafka import ...`
+# import path, same API, nothing else in this codebase changes.
+# >>> Flagged for team confirmation if the Kafka pipeline pair is using plain
+#     kafka-python or confluent-kafka instead — see README Troubleshooting. <<<
+kafka-python-ng==2.2.2
