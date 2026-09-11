@@ -269,6 +269,8 @@ class Store:
         self.db_path = Path(db_path or DEFAULT_DB_PATH)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path))
+        self._conn.execute("PRAGMA journal_mode=WAL;")
+        self._conn.execute("PRAGMA synchronous=NORMAL;")
         self._conn.executescript(SCHEMA)
 
         # Auto-migrate new columns for backwards compatibility with pre-existing DBs

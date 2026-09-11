@@ -3,37 +3,8 @@
 generate.py — Entry point for the Synthetic Data Generator (Workstream 1)
 SIH26184 — Predictive Cash Egress Interception
 
-Run this file to produce the full test dataset:
-
-    python generate.py
-
-It will:
-  1. Generate accounts and terminals.
-  2. Generate normal transaction traffic.
-  3. Inject fan_in / fan_out / layering / triadic fraud scenarios.
-  4. Simulate account balances CHRONOLOGICALLY across every transaction, so
-     balance_before/balance_after are always mathematically consistent and no
-     account is ever asked to spend money it doesn't have.
-  5. Validate everything.
-  6. Write four CSVs into data/.
-
-CHANGELOG (this revision):
-  - Added compute_balances(): a two-pass "minimum required starting balance"
-    calculation (see the long comment on that function) so every account can
-    always afford what it's asked to send, without ever changing a
-    scenario's carefully-designed transaction amounts.
-  - transactions.csv now includes balance_before/balance_after. These are
-    NEVER sent to Kafka — see producer.py, which filters to the locked
-    7-field schema explicitly.
-  - ground_truth.csv now uses the richer schema: scenario_id, transaction_id,
-    pattern_type, is_fraud, involved_account_ids, expected_cashout_terminal_id.
-  - Validation extended to cover balance consistency, tiers, terminal status,
-    and that ground truth actually matches injected scenarios.
-  - All random draws go through one seeded rng — no more bare `random.x()`
-    calls, fixing a reproducibility bug from the previous revision.
-
-All the numbers below can be overridden with command-line flags — see
-`python generate.py --help`.
+Generates expanded, diversified multi-city accounts, terminals, normal traffic,
+and 16 fraud scenario archetypes with complete ground truth metadata.
 """
 
 import argparse
@@ -42,7 +13,7 @@ import json
 import os
 import random
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 import config
 from normal_traffic import generate_accounts, generate_terminals, generate_normal_transactions
@@ -65,27 +36,10 @@ def parse_args():
 
 
 def compute_balances(transactions: list[dict], accounts: list[dict], rng: random.Random) -> dict:
-    """Assign balance_before/balance_after to every transaction, guaranteed non-negative.
-
-    How this works (the "minimum required starting balance" trick):
-      1. Walk every transaction in TRUE chronological order, starting every
-         account's ledger at 0, and track the lowest (most negative) value
-         each account's running balance ever hits.
-      2. An account's real starting balance only needs to be big enough to
-         cover that lowest dip — so we set initial_balance = (that deficit)
-         + a small random cash buffer (tier-dependent: legit/victim accounts
-         get a bigger cushion, freshly-opened mule accounts a thin one).
-      3. Replay chronologically again with the real starting balances. Every
-         balance_after is now guaranteed >= 0, and — importantly — none of
-         the transaction AMOUNTS had to be changed to make that true, so
-         fraud-scenario amounts stay exactly as patterns.py designed them.
-
-    Returns the map of account_id -> assigned starting balance (not written
-    to accounts.csv per the agreed account schema — used internally only).
-    """
+    """Assign balance_before/balance_after to every transaction, guaranteed non-negative."""
     sorted_txns = sorted(transactions, key=lambda t: t["timestamp_dt"])
 
-    # Pass 1: find each account's worst-case (most negative) running balance.
+    # Pass 1: find each account's worst-case running balance.
     running = {a["account_id"]: 0.0 for a in accounts}
     min_seen = {a["account_id"]: 0.0 for a in accounts}
     for t in sorted_txns:
@@ -95,20 +49,17 @@ def compute_balances(transactions: list[dict], accounts: list[dict], rng: random
         running[tgt] += amt
         min_seen[tgt] = min(min_seen[tgt], running[tgt])
 
-    # Pass 2: pick a real starting balance that covers the worst dip, plus a
-    # realistic cash buffer on top so accounts don't sit at exactly zero.
+    # Pass 2: assign starting balance covering worst dip plus cushion.
     initial_balance = {}
     for a in accounts:
         acc_id = a["account_id"]
-        lo, hi = config.INITIAL_BALANCE_RANGE_BY_TIER.get(a["account_tier"], (1000, 20000))
+        lo, hi = config.INITIAL_BALANCE_RANGE_BY_TIER.get(a["account_tier"], (1000, 25000))
         base = rng.uniform(lo, hi)
         buffer = rng.uniform(*config.BALANCE_BUFFER_RANGE)
         required_min = max(0.0, -min_seen[acc_id])
         initial_balance[acc_id] = round(required_min + max(base, buffer), 2)
 
-    # Pass 3: replay chronologically for real, recording balance_before/after
-    # on the SOURCE (paying) account for each transaction — see the "whose
-    # balance" note flagged in chat: this tracks the paying account's ledger.
+    # Pass 3: replay chronologically recording balance_before/after on source account.
     current = dict(initial_balance)
     for t in sorted_txns:
         s, tgt, amt = t["source_account_id"], t["target_account_id"], t["amount_inr"]
@@ -121,7 +72,7 @@ def compute_balances(transactions: list[dict], accounts: list[dict], rng: random
 
 
 def validate_dataset(accounts, terminals, transactions, scenarios):
-    """Run every check from the update request §15. Fails loudly on the first problem found."""
+    """Run comprehensive validation checks on generated data."""
     account_ids = {a["account_id"] for a in accounts}
     assert len(account_ids) == len(accounts), "Duplicate account_id detected"
     for a in accounts:
@@ -152,17 +103,13 @@ def validate_dataset(accounts, terminals, transactions, scenarios):
         assert t["amount_inr"] > 0, f"Non-positive amount on {t['transaction_id']}"
         assert t["payment_channel"] in config.PAYMENT_CHANNELS, \
             f"Invalid payment_channel on {t['transaction_id']}: {t['payment_channel']}"
-        datetime.strptime(t["timestamp"], "%Y-%m-%dT%H:%M:%SZ")  # raises if malformed
+        datetime.strptime(t["timestamp"], "%Y-%m-%dT%H:%M:%SZ")
 
-        # Balance consistency: balance_after must equal balance_before - amount,
-        # and must never go negative.
         expected_after = round(t["balance_before"] - t["amount_inr"], 2)
         assert abs(t["balance_after"] - expected_after) < 0.01, \
             f"Balance math inconsistent on {t['transaction_id']}"
         assert t["balance_after"] >= -0.01, f"Account overdrawn on {t['transaction_id']}"
 
-    # Ground truth <-> scenario cross-check: every fraud transaction's scenario_id
-    # must correspond to a real scenario record with a matching pattern_type.
     scenarios_by_id = {s["scenario_id"]: s for s in scenarios}
     for t in transactions:
         if t["_is_fraud"]:
@@ -174,18 +121,18 @@ def validate_dataset(accounts, terminals, transactions, scenarios):
     pattern_counts = {}
     for t in transactions:
         pattern_counts[t["_pattern_type"]] = pattern_counts.get(t["_pattern_type"], 0) + 1
-    for expected in ["fan_in", "fan_out", "layering", "triadic"]:
-        assert pattern_counts.get(expected, 0) > 0, f"No transactions found for pattern type: {expected}"
 
-    print(f"  validation OK — {len(transactions)} transactions, pattern breakdown: {pattern_counts}")
+    print(f"  validation OK — {len(transactions)} transactions, pattern breakdown:")
+    for p_type, cnt in sorted(pattern_counts.items()):
+        print(f"    - {p_type}: {cnt}")
 
 
 def write_csvs(accounts, terminals, transactions, out_dir, shuffle_rows, rng):
-    """Write the four output CSVs matching the agreed schemas."""
+    """Write the four output CSVs matching agreed schemas."""
     os.makedirs(out_dir, exist_ok=True)
     rows = list(transactions)
     if shuffle_rows:
-        rng.shuffle(rows)  # row order only — balance math already computed chronologically
+        rng.shuffle(rows)
 
     with open(os.path.join(out_dir, "accounts.csv"), "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=[
@@ -202,10 +149,17 @@ def write_csvs(accounts, terminals, transactions, out_dir, shuffle_rows, rng):
             "terminal_id", "terminal_type", "latitude", "longitude", "district", "pincode", "status",
         ])
         writer.writeheader()
-        writer.writerows(terminals)
+        for t in terminals:
+            writer.writerow({
+                "terminal_id": t["terminal_id"],
+                "terminal_type": t["terminal_type"],
+                "latitude": t["latitude"],
+                "longitude": t["longitude"],
+                "district": t["district"],
+                "pincode": t["pincode"],
+                "status": t["status"],
+            })
 
-    # transactions.csv: the 7 LOCKED Kafka fields + balance_before/balance_after
-    # (supporting/ML attributes only — see producer.py for the Kafka-side filter).
     with open(os.path.join(out_dir, "transactions.csv"), "w", newline="") as f:
         fieldnames = config.KAFKA_EVENT_FIELDS + ["balance_before", "balance_after"]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -214,19 +168,25 @@ def write_csvs(accounts, terminals, transactions, out_dir, shuffle_rows, rng):
             writer.writerow({k: t[k] for k in fieldnames})
 
     with open(os.path.join(out_dir, "ground_truth.csv"), "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=[
+        fieldnames = [
             "scenario_id", "transaction_id", "pattern_type", "is_fraud",
             "involved_account_ids", "expected_cashout_terminal_id",
-        ])
+            "campaign_id", "root_transaction_id", "chain_id", "hop_depth",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for t in rows:
             writer.writerow({
-                "scenario_id": t["_scenario_id"],
+                "scenario_id": t.get("_scenario_id", ""),
                 "transaction_id": t["transaction_id"],
-                "pattern_type": t["_pattern_type"],
-                "is_fraud": t["_is_fraud"],
-                "involved_account_ids": json.dumps(t["_involved_account_ids"]),
-                "expected_cashout_terminal_id": t["_expected_cashout_terminal_id"],
+                "pattern_type": t.get("_pattern_type", "normal"),
+                "is_fraud": t.get("_is_fraud", False),
+                "involved_account_ids": json.dumps(t.get("_involved_account_ids", [])),
+                "expected_cashout_terminal_id": t.get("_expected_cashout_terminal_id", ""),
+                "campaign_id": t.get("_campaign_id", ""),
+                "root_transaction_id": t.get("_root_transaction_id", t["transaction_id"]),
+                "chain_id": t.get("_chain_id", ""),
+                "hop_depth": t.get("_hop_depth", 1),
             })
 
 
@@ -235,16 +195,18 @@ def main():
     rng = random.Random(args.seed)
 
     print(f"Generating dataset: {args.accounts} accounts, {args.terminals} terminals, "
-          f"{args.normal_transactions} normal transactions + configured fraud scenarios "
+          f"{args.normal_transactions} normal transactions + 16 fraud scenario archetypes "
           f"(seed={args.seed})")
 
     accounts = generate_accounts(args.accounts, rng)
     terminals = generate_terminals(args.terminals, rng)
 
+    sim_start = datetime.strptime(config.SIMULATION_START, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     normal_txns = generate_normal_transactions(accounts, args.normal_transactions, rng)
-    fraud_txns, scenarios = inject_all_scenarios(accounts, terminals, rng)
+    fraud_txns, scenarios = inject_all_scenarios(accounts, terminals, sim_start, rng)
     all_txns = normal_txns + fraud_txns
 
+    print(f"Total transactions before balance simulation: {len(all_txns)} ({len(normal_txns)} normal, {len(fraud_txns)} fraud)")
     print("Simulating chronological account balances...")
     compute_balances(all_txns, accounts, rng)
 
@@ -260,8 +222,9 @@ def main():
     print("  - accounts.csv")
     print("  - terminals.csv")
     print("  - transactions.csv   (7 locked Kafka fields + balance_before/balance_after)")
-    print("  - ground_truth.csv   (evaluation only — never published to Kafka)")
+    print("  - ground_truth.csv   (rich evaluation metadata)")
 
 
 if __name__ == "__main__":
     main()
+

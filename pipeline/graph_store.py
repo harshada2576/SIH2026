@@ -233,12 +233,14 @@ class GraphStore:
 
         if direction in ("both", "out"):
             for _s, _t, _k, data in self.graph.out_edges(account_id, keys=True, data=True):
-                if cutoff is None or data["timestamp"] >= cutoff:
+                ts = data["timestamp"]
+                if ts <= as_of_dt and (cutoff is None or ts >= cutoff):
                     result.append(data["txn"])
 
         if direction in ("both", "in"):
             for _s, _t, _k, data in self.graph.in_edges(account_id, keys=True, data=True):
-                if cutoff is None or data["timestamp"] >= cutoff:
+                ts = data["timestamp"]
+                if ts <= as_of_dt and (cutoff is None or ts >= cutoff):
                     result.append(data["txn"])
 
         return result
@@ -342,12 +344,9 @@ class GraphStore:
         if not devs:
             return set()
         sharers: Set[str] = set()
-        for u, v, data in self.graph.edges(data=True):
-            dev = data.get("device_fingerprint") or data.get("device")
-            if dev in devs:
-                for a in (u, v):
-                    if a != account_id:
-                        sharers.add(a)
+        for dev in devs:
+            sharers.update(self._device_senders.get(dev, set()))
+        sharers.discard(account_id)
         return sharers
 
     def historical_terminal_affinity(self, account_id: str) -> List[str]:
@@ -394,20 +393,23 @@ class GraphStore:
 
         as_of_dt = _as_utc(as_of) if as_of is not None else utcnow()
         cutoff = as_of_dt - timedelta(seconds=window_seconds) if window_seconds else None
-        visited: Dict[str, int] = {account_id: 0}
-        frontier = deque([account_id])
+        visited: Set[str] = {account_id}
+        frontier = deque([(account_id, 0)])
         max_d = 0
 
         while frontier:
-            node = frontier.popleft()
+            node, depth = frontier.popleft()
+            if depth >= max_depth:
+                continue
             for src, _dst, _k, data in self.graph.in_edges(node, keys=True, data=True):
-                if cutoff is not None and data["timestamp"] < cutoff:
+                ts = data["timestamp"]
+                if ts > as_of_dt or (cutoff is not None and ts < cutoff):
                     continue
-                nd = visited[node] + 1
-                if nd <= max_depth and (src not in visited or visited[src] < nd):
-                    visited[src] = max(visited.get(src, 0), nd)
+                if src not in visited:
+                    visited.add(src)
+                    nd = depth + 1
                     max_d = max(max_d, nd)
-                    frontier.append(src)
+                    frontier.append((src, nd))
         return max_d
 
     def edge_latency_between(self, account_id: str, direction: str = "out") -> Optional[timedelta]:
@@ -421,6 +423,7 @@ class GraphStore:
         if not in_times:
             return None
 
+        import bisect
         edges = (
             self.graph.out_edges(account_id, data=True)
             if direction == "out"
@@ -429,12 +432,11 @@ class GraphStore:
         best = None
         for _s, _t, data in edges:
             ts = data["timestamp"]
-            prior = [t for t in in_times if t <= ts]
-            if not prior:
-                continue
-            gap = ts - max(prior)
-            if best is None or gap < best:
-                best = gap
+            idx = bisect.bisect_right(in_times, ts)
+            if idx > 0:
+                gap = ts - in_times[idx - 1]
+                if best is None or gap < best:
+                    best = gap
         return best
 
     def forwarded_transactions(
@@ -451,8 +453,7 @@ class GraphStore:
         cutoff = as_of_dt - timedelta(seconds=window_seconds) if window_seconds else None
         in_times = [
             t.timestamp_utc
-            for t in self.transactions_involving(account_id, direction="in")
-            if cutoff is None or t.timestamp_utc >= cutoff
+            for t in self.transactions_involving(account_id, window_seconds=window_seconds, direction="in", as_of=as_of)
         ]
         if not in_times:
             return []
@@ -460,7 +461,7 @@ class GraphStore:
         out_events = []
         for _s, _t, data in self.graph.out_edges(account_id, data=True):
             ev = data["txn"]
-            if cutoff is not None and ev.timestamp_utc < cutoff:
+            if ev.timestamp_utc > as_of_dt or (cutoff is not None and ev.timestamp_utc < cutoff):
                 continue
             if any(t <= ev.timestamp_utc for t in in_times):
                 out_events.append(ev)

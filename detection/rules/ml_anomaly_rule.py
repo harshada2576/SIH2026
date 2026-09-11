@@ -81,20 +81,75 @@ def _isolation_forest_score(vectors: Dict[str, List[float]], account_id: str) ->
     return severity, f"isolation-forest anomaly percentile {severity:.0%} vs. {len(ids)} accounts"
 
 
+_MODEL_CACHE: Dict[Tuple, Tuple[Any, float, float, str]] = {}
+
+
 def evaluate(graph: GraphStore, account_id: str, window_seconds: int = 3600,
              as_of=None) -> RuleResult:
-    vectors = _population_vectors(graph, window_seconds, as_of)
-    if account_id not in vectors:
+    if not graph.has_account(account_id):
         return RuleResult(
             "ml_anomaly", 0.0, "account not yet in graph",
             "ML anomaly: account has no observed behaviour yet").clamped()
 
-    if len(vectors) < MIN_POPULATION_FOR_MODEL:
-        severity, detail = _zscore_fallback(vectors, account_id)
-        model_name = "statistical fallback (population too small for ML model)"
+    # Step 1: Compute feature vector for this specific account
+    v = _feature_vector(graph, account_id, window_seconds, as_of)
+
+    # Step 2: Get or fit baseline model (refreshed periodically)
+    num_edges = graph.graph.number_of_edges()
+    model_key = (id(graph), num_edges // 500)
+
+    if model_key in _MODEL_CACHE:
+        model, lo, hi, model_name = _MODEL_CACHE[model_key]
     else:
-        severity, detail = _isolation_forest_score(vectors, account_id)
-        model_name = "IsolationForest"
+        # Sample active accounts to fit baseline model
+        all_accs = [
+            n for n, data in graph.graph.nodes(data=True)
+            if data.get("node_type") == "account" or n in graph.accounts or n in graph._metadata
+        ]
+        sample_accs = all_accs[:150] if len(all_accs) > 150 else all_accs
+        if account_id not in sample_accs:
+            sample_accs.append(account_id)
+        vectors = {aid: _feature_vector(graph, aid, window_seconds, as_of) for aid in sample_accs}
+
+        if len(vectors) < MIN_POPULATION_FOR_MODEL:
+            model, lo, hi, model_name = None, 0.0, 1.0, "statistical fallback"
+        else:
+            try:
+                from sklearn.ensemble import IsolationForest
+                X = list(vectors.values())
+                m = IsolationForest(n_estimators=50, contamination="auto", random_state=42)
+                m.fit(X)
+                raw = m.decision_function(X)
+                lo, hi = float(min(raw)), float(max(raw))
+                model, model_name = m, "IsolationForest"
+            except ImportError:
+                model, lo, hi, model_name = None, 0.0, 1.0, "statistical fallback (scikit-learn missing)"
+
+        if len(_MODEL_CACHE) > 8:
+            _MODEL_CACHE.clear()
+        _MODEL_CACHE[model_key] = (model, lo, hi, model_name)
+
+    # Step 3: Score the account
+    if model is not None and (hi - lo) > 1e-9:
+        score = float(model.decision_function([v])[0])
+        severity = float(max(0.0, min(1.0, (hi - score) / (hi - lo))))
+        detail = f"isolation-forest anomaly percentile {severity:.0%}"
+    else:
+        # Statistical rule of thumb on feature vector
+        # [fan_in, fan_out, depth, velocity_seconds, total_received]
+        anom = 0.0
+        if v[0] >= 5:  # High fan-in
+            anom += 0.4
+        if v[1] >= 5:  # High fan-out
+            anom += 0.4
+        if v[2] >= 3:  # Deep chain
+            anom += 0.3
+        if v[4] > 50000:  # High amount received
+            anom += 0.3
+        if v[3] < 120 and v[4] > 50000:  # Rapid high-value velocity
+            anom += 0.4
+        severity = max(0.0, min(1.0, anom))
+        detail = f"feature anomaly heuristic score {severity:.2f}"
 
     measured = f"[{model_name}] {detail}"
     evidence = (
