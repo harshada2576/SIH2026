@@ -84,6 +84,20 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, case)
             return
+        if len(parts) == 3 and parts[0] == "cases" and parts[2] == "notifications":
+            ncrp_id = parts[1]
+            case = ENGINE.get(ncrp_id)
+            if not case:
+                self._send(404, {"error": "case not found"})
+                return
+            notifs = ENGINE.notification_service.get_case_notifications(ncrp_id)
+            summary = ENGINE.notification_service.get_case_notification_summary(ncrp_id)
+            self._send(200, {
+                "case_id": ncrp_id,
+                "summary": summary,
+                "notifications": notifs,
+            })
+            return
         if parts == ["terminals"]:
             self._send(200, {"terminals": ENGINE.terminal_markers()})
             return
@@ -97,6 +111,33 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[0] == "cases":
             ncrp_id, action = parts[1], parts[2]
             body = self._read_json()
+            if action == "notify":
+                case = ENGINE.get(ncrp_id)
+                if not case:
+                    self._send(404, {"error": "case not found"})
+                    return
+                from pipeline.notification_service import NotificationEvent
+                ev_type = body.get("event_type", "HIGH_RISK_CASE")
+                results = ENGINE.notification_service.notify(NotificationEvent(
+                    event_type=ev_type,
+                    case_id=ncrp_id,
+                    account_id=case.get("flaggedAccountId", ""),
+                    amount=float(body.get("amount") or case.get("suspiciousExposure") or 100000.0),
+                    terminal_id=case.get("targetTerminal", {}).get("id"),
+                    terminal_location=case.get("targetTerminal", {}).get("address"),
+                    status=case.get("status"),
+                    details=body,
+                ))
+                case["notificationStatus"] = ENGINE.notification_service.get_case_notification_summary(ncrp_id).get("channels", {})
+                case["notifications"] = ENGINE.notification_service.get_case_notification_summary(ncrp_id).get("items", [])
+                self._send(200, {
+                    "ok": True,
+                    "case_id": ncrp_id,
+                    "dispatched_count": len(results),
+                    "notifications": [r.to_dict() for r in results],
+                })
+                return
+
             officer = body.get("officer") or "Duty officer"
             case = ENGINE.act(ncrp_id, action, officer)
             if case is None:

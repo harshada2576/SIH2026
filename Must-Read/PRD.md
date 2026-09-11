@@ -35,6 +35,7 @@ Cybercrime proceeds in India move through chains of "mule" bank accounts — oft
 4. **Alerting** — a triggered notification (console log and/or webhook/email stub) when a risk threshold is crossed.
 5. **CyberShield Android App (Frontend)** — Native Kotlin + Jetpack Compose mobile command dashboard showing flagged accounts, ranked predicted terminals with confidence scores on Google Maps, and explainable evidence trail per alert.
 6. **Scalability story** — a live demonstration of partitioned throughput (2-3 consumers) plus a one-slide capacity/throughput argument extending the local numbers to national scale.
+7. **SMS & Email Notification Subsystem (Sprint 4)** — Multi-channel notifications for bank, security, and investigation teams across critical fraud lifecycle events (high-risk detection, confirmed fraud, cashout attempt, withdrawal blocked, police alert dispatched) with SQLite persistence and native Android UI delivery tracking.
 
 ## 6. Explicitly out of scope (state this confidently in the pitch — it's a strength, not an apology)
 - Real bank data or any real PII of any kind.
@@ -66,11 +67,11 @@ Cybercrime proceeds in India move through chains of "mule" bank accounts — oft
 | NFR1 | End-to-end pipeline (generate → publish → consume → detect → alert → display) must run on a single laptop with no external cloud dependency, for demo reliability |
 | NFR2 | Each component fails loudly and locally rather than silently dropping events or crashing the whole pipeline |
 | NFR3 | Dataset generation completes in well under a few minutes locally (if it's slower, it's too big for this timeline) |
-| NFR4 | Dashboard is legible from the back of a presentation room (large fonts, high contrast, minimal clutter) |
+| NFR4 | CyberShield Android UI is legible from the back of a presentation room (large fonts, high contrast, minimal clutter) |
 | NFR5 | The full demo can be run from a clean checkout with a documented set of commands (`README.md` + `scripts/run_all.sh`) — don't rely on undocumented manual setup steps only one teammate remembers |
 
 ## 9. Success criteria
-- **By Sept 1 (prototype freeze):** data generator → Kafka → consumer/graph → detection → alert → dashboard all wired together and running end-to-end on one machine, on a small dataset, live and repeatable.
+- **By Sept 1 (prototype freeze):** data generator → Kafka → consumer/graph → detection → alert → CyberShield Android App all wired together and running end-to-end on one machine, on a small dataset, live and repeatable.
 - **By Sept 4 (presentation):** the above, plus a rehearsed 3-minute demo script, a scalability/capacity slide, an architecture slide (including the future-work GNN/production stack as "target architecture," not as something you claim to have built), and rehearsed answers from the Q&A prep checklist.
 
 ## 10. How this differs from what already exists (have this exact answer ready)

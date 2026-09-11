@@ -91,6 +91,9 @@ fun CaseDetailScreen(
             RiskBreakdownCard(case.riskBreakdown)
             Spacer(modifier = Modifier.height(16.dp))
 
+            NotificationDeliveryCard(case)
+            Spacer(modifier = Modifier.height(16.dp))
+
             DecisionBar(
                 case = case,
                 status = case.status,
@@ -778,26 +781,6 @@ private fun DecisionBar(
 // ─── Shared Composables ────────────────────────────────────────────────
 
 @Composable
-fun StatusBadge(status: ActionStatus) {
-    val (color, text) = when (status) {
-        ActionStatus.PENDING -> AlertOrange to "NEEDS REVIEW"
-        ActionStatus.APPROVED -> SuccessGreen to "SENT TO POLICE"
-        ActionStatus.BANK_HOLD -> MediumCyan to "ACCOUNT FROZEN"
-        ActionStatus.DISMISSED -> BorderTaupe to "DISMISSED"
-        ActionStatus.EN_ROUTE -> InfoBlue to "EN ROUTE"
-        ActionStatus.LIEN_PLACED -> SuccessGreen to "HOLD CONFIRMED"
-        ActionStatus.RELEASED -> SuccessGreen to "HOLD RELEASED"
-    }
-
-    Card(shape = RoundedCornerShape(6.dp), colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.15f))) {
-        Text(
-            text = text, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            fontSize = 10.sp, fontWeight = FontWeight.Bold, color = color, letterSpacing = 1.sp
-        )
-    }
-}
-
-@Composable
 private fun MetricChip(
     modifier: Modifier = Modifier,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -824,4 +807,197 @@ private fun MetricChip(
     }
 }
 
-private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+@Composable
+fun NotificationDeliveryCard(case: ComplaintTicket) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCharcoal),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = Brush.linearGradient(colors = listOf(MediumCyan.copy(alpha = 0.4f), Color.Transparent))
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Default.Notifications,
+                    contentDescription = null,
+                    tint = MediumCyan,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    "SMS & Email Notifications",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextOffWhite
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Authoritative delivery audit log synchronized with backend",
+                fontSize = 11.sp,
+                color = BorderTaupe
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Channel Badges Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                val smsStatus = case.notificationStatus["SMS"]
+                val emailStatus = case.notificationStatus["EMAIL"]
+
+                ChannelStatusTile(
+                    modifier = Modifier.weight(1f),
+                    channel = "SMS",
+                    status = smsStatus?.status ?: if (case.notifications.any { it.channel == "SMS" }) "SENT" else "NOT_SENT",
+                    isSimulated = smsStatus?.isSimulated ?: true,
+                    count = smsStatus?.count ?: case.notifications.count { it.channel == "SMS" }
+                )
+
+                ChannelStatusTile(
+                    modifier = Modifier.weight(1f),
+                    channel = "EMAIL",
+                    status = emailStatus?.status ?: if (case.notifications.any { it.channel == "EMAIL" }) "SENT" else "NOT_SENT",
+                    isSimulated = emailStatus?.isSimulated ?: true,
+                    count = emailStatus?.count ?: case.notifications.count { it.channel == "EMAIL" }
+                )
+            }
+
+            // Recent Notification Items Preview
+            if (case.notifications.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "DISPATCHED NOTIFICATIONS (${case.notifications.size})",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = BorderTaupe,
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                case.notifications.take(3).forEach { notif ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .background(BgDeepSlate, RoundedCornerShape(8.dp))
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .background(if (notif.channel == "SMS") MediumCyan.copy(alpha = 0.15f) else AlertOrange.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                notif.channel,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (notif.channel == "SMS") MediumCyan else AlertOrange
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    notif.eventType.replace("_", " "),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextOffWhite
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "→ ${notif.recipient}",
+                                    fontSize = 10.sp,
+                                    color = BorderTaupe,
+                                    maxLines = 1
+                                )
+                            }
+                            if (notif.preview.isNotBlank()) {
+                                Text(
+                                    notif.preview.lines().firstOrNull() ?: notif.preview,
+                                    fontSize = 10.sp,
+                                    color = BorderTaupe,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            if (notif.status == "SENT") "✓" else "✗",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (notif.status == "SENT") Color(0xFF10B981) else Color(0xFFEF4444)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelStatusTile(
+    modifier: Modifier = Modifier,
+    channel: String,
+    status: String,
+    isSimulated: Boolean,
+    count: Int
+) {
+    val isSent = status.equals("SENT", ignoreCase = true)
+    val isFailed = status.equals("FAILED", ignoreCase = true)
+    val isRetrying = status.equals("RETRYING", ignoreCase = true)
+
+    val badgeBg = when {
+        isSent -> Color(0xFF065F46)
+        isFailed -> Color(0xFF7F1D1D)
+        isRetrying -> Color(0xFF78350F)
+        else -> BgDeepSlate
+    }
+    val badgeText = when {
+        isSent -> Color(0xFF34D399)
+        isFailed -> Color(0xFFF87171)
+        isRetrying -> Color(0xFFFBBF24)
+        else -> BorderTaupe
+    }
+    val statusLabel = when {
+        isSent -> "✓ SENT"
+        isFailed -> "✗ FAILED"
+        isRetrying -> "⟳ RETRYING"
+        else -> "STANDBY"
+    }
+
+    Box(
+        modifier = modifier
+            .background(BgDeepSlate, RoundedCornerShape(10.dp))
+            .padding(10.dp)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(channel, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextOffWhite)
+                Box(
+                    modifier = Modifier
+                        .background(badgeBg, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(statusLabel, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = badgeText)
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                if (isSimulated) "Simulated Delivery" else "Live Gateway",
+                fontSize = 10.sp,
+                color = BorderTaupe
+            )
+        }
+    }
+}

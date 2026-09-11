@@ -66,19 +66,26 @@ CyberShield/.cxx/
 CyberShield/.externalNativeBuild/
 CyberShield/*.iml
 CyberShield/app/*.iml
+CyberShield/.idea/
 *.apk
 *.ap_
 *.aab
 *.dex
 *.class
-*.log
-hs_err_pid*.log
-replay_pid*.log
 signing-config.json
 *.jks
 *.keystore
 
-# Data Volumes & Temporary Test Artifacts
+# ==========================================
+# Logs & Process Outputs
+# ==========================================
+*.log
+logs/
+hs_err_pid*.log
+replay_pid*.log
+
+# ==========================================
+# Data Volumes, Runtime DBs & Audit Outputs
 # ==========================================
 .ipynb_checkpoints/
 .kafka-data/
@@ -86,7 +93,17 @@ signing-config.json
 kafka-data/
 zookeeper-data/
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
 data/output/*.db
+data/output/*.db-wal
+data/output/*.db-shm
+data/output/*.db-journal
+data/output/*.jsonl
+data/output/audit_ledger.jsonl
 data/output/audit_ledger_DEMO.jsonl
+data/output/audit_keys/
 data/output/audit_keys_DEMO/
-

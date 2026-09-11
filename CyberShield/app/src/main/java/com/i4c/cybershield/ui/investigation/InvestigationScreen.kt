@@ -1241,6 +1241,7 @@ fun StatusBadge(status: ActionStatus) {
         ActionStatus.DISMISSED -> BorderTaupe to "DISMISSED"
         ActionStatus.EN_ROUTE -> InfoBlue to "EN ROUTE"
         ActionStatus.LIEN_PLACED -> SuccessGreen to "LIEN PLACED"
+        ActionStatus.RELEASED -> BorderTaupe to "RELEASED"
     }
 
     Card(
@@ -1697,13 +1698,3 @@ private fun TimelineEventsCard(events: List<LocationTimelineEvent>) {
         }
     }
 }
-
-// Helper data class for destructuring
-private data class Quadruple<A, B, C, D>(
-    val first: A,
-    val second: B,
-    val third: C,
-    val fourth: D
-)
-
-
