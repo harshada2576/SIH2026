@@ -172,6 +172,38 @@ fun parseCase(obj: JSONObject): ComplaintTicket {
     val nearbyArr = obj.optJSONArray("nearbyTerminals") ?: JSONArray()
     val nearby = (0 until nearbyArr.length()).map { parseTerminal(nearbyArr.getJSONObject(it)) }
     val repeat = obj.optJSONObject("repeatActivity")
+    val notifStatusMap = mutableMapOf<String, NotificationChannelStatus>()
+    val notifStatusObj = obj.optJSONObject("notificationStatus")
+    if (notifStatusObj != null) {
+        val keys = notifStatusObj.keys()
+        while (keys.hasNext()) {
+            val ch = keys.next()
+            val cObj = notifStatusObj.optJSONObject(ch)
+            if (cObj != null) {
+                notifStatusMap[ch] = NotificationChannelStatus(
+                    status = cObj.optString("status", "NOT_SENT"),
+                    isSimulated = cObj.optBoolean("is_simulated", true),
+                    timestamp = if (cObj.has("timestamp") && !cObj.isNull("timestamp")) cObj.optString("timestamp") else null,
+                    count = cObj.optInt("count", 0)
+                )
+            }
+        }
+    }
+    val notifsArr = obj.optJSONArray("notifications") ?: JSONArray()
+    val notifications = (0 until notifsArr.length()).map {
+        val n = notifsArr.getJSONObject(it)
+        NotificationItem(
+            notificationId = n.optString("notificationId", n.optString("notification_id")),
+            channel = n.optString("channel"),
+            eventType = n.optString("eventType", n.optString("event_type")),
+            recipient = n.optString("recipient"),
+            recipientGroup = n.optString("recipientGroup", n.optString("recipient_group")),
+            status = n.optString("status", "SENT"),
+            isSimulated = n.optBoolean("isSimulated", n.optBoolean("is_simulated", true)),
+            timestamp = n.optString("timestamp", n.optString("sent_at", n.optString("created_at"))),
+            preview = n.optString("preview", n.optString("message_body"))
+        )
+    }
     return ComplaintTicket(
         ncrpId = obj.optString("ncrpId"),
         reportedLoss = obj.optString("reportedLoss"),
@@ -206,7 +238,9 @@ fun parseCase(obj: JSONObject): ComplaintTicket {
         confidencePercent = obj.optInt("confidencePercent"),
         evidence = obj.optJSONArray("evidence")?.let { arr ->
             (0 until arr.length()).map { arr.optString(it) }
-        } ?: emptyList()
+        } ?: emptyList(),
+        notificationStatus = notifStatusMap,
+        notifications = notifications
     )
 }
 

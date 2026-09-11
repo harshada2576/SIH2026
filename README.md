@@ -26,11 +26,17 @@ Synthetic / Live Transactions
              ↓
      Kafka "risk_alerts" (with terminal coordinates: latitude, longitude)
              ↓
-   ┌──────────────────────────────────────────────┐
-   │                                              │
-   ▼                                              ▼
-CyberShield Native Android App        FastAPI Web Dashboard
-(MapLibre OSM + Jetpack Compose)     (Leaflet.js + Evidence Panel)
+    ┌─────────────────────────────────────────────────────────────┐
+    │                                                             │
+    ▼                                                             ▼
+Notification Subsystem (Sprint 4)                   FastAPI Backend API (`api/server.py`)
+(SMS & Email to Bank/Security/Investigation)        (LAN Sync on 0.0.0.0:8080)
+    │                                                             │
+    └─────────────────────────────┬───────────────────────────────┘
+                                  ▼
+                CyberShield Native Android Kotlin App
+                (Jetpack Compose · MapLibre OSM · Live Sync)
+                **SOLE USER-FACING FRONTEND** (No Web App)
 ```
 
 ---
@@ -38,7 +44,7 @@ CyberShield Native Android App        FastAPI Web Dashboard
 ## 2. Platform Subsystems
 
 ### 1. Data Generation (Workstream 1)
-* **Modular Generator (`data-generator/`):** Generates realistic normal traffic + injected fraud patterns (fan-in, fan-out, layering chains, triadic cycles) with power-law amount distributions.
+* **Modular Generator (`data-generator/`):** Generates realistic normal traffic + injected fraud patterns (fan-in, fan-out, layering chains, triadic cycles) with power-law amount distributions across 16 fraud archetypes.
 * **Producer (`data-generator/producer.py`):** Normalizes transactions to the 7 locked Kafka fields, keys messages by `source_account_id`, and replays streams in true chronological order.
 
 ### 2. Kafka Streaming & Graph Pipeline (Workstream 2)
@@ -59,9 +65,36 @@ CyberShield Native Android App        FastAPI Web Dashboard
 * **Terminal Priority Ranking (`detection/terminal_ranking.py`):** Ranks candidate physical egress terminals by spatial distance, historical affinity, and terminal type.
 * **Alert Dispatcher (`detection/alert_dispatcher.py`):** Publishes `risk_alerts` with explainable evidence trails and predicted withdrawal time windows.
 
-### 4. Presentation & Visualization Layer
-* **CyberShield Android App (`CyberShield/`):** Native Android Kotlin application (Jetpack Compose, MapLibre OSM map, Investigation XAI money trails, Dispatch & Audit timelines, domain-restricted LEA authentication).
-* **FastAPI Web Dashboard (`detection/dashboard/`):** Lightweight web dashboard serving alert feeds, Leaflet.js interactive maps, and evidence panels.
+### 4. SMS & Email Notification Subsystem (Sprint 4)
+* **Modular Notification Engine (`pipeline/notification_service.py`):** Dispatches channel-specific alerts (concise SMS and structured investigation emails with HTML + plain text) across key case milestones without blocking transaction processing.
+* **Supported Events:**
+  - `HIGH_RISK_CASE`: Initial detection and predicted terminal assignment.
+  - `CONFIRMED_FRAUD`: Payer confirms unauthorized transfer via interactive verification.
+  - `CASHOUT_ATTEMPT_DETECTED`: Physical or cardless withdrawal attempted at ATM.
+  - `WITHDRAWAL_BLOCKED`: Hard ATM/digital block intercepts cash egress.
+  - `CASE_ESCALATED`: Priority escalated to CRITICAL.
+  - `POLICE_ALERT_SENT`: LEA investigation package dispatched to field patrol.
+  - `PENDING_CONFIRMATION`: High-risk transfer placed on digital hold awaiting verification.
+* **Provider Architecture:**
+  - Default: Safe mock providers labeled `[SIMULATED]` (`MockSmsProvider`, `MockEmailProvider`).
+  - Production Gateways: Pluggable HTTP/REST SMS (`RealSmsProvider`) and standard SMTP/TLS (`SmtpEmailProvider`) configurable via environment variables without hardcoded credentials.
+* **Reliability & Idempotency:** Deterministic hashing keys prevent duplicate notifications; bounded retry mechanism (up to 3 retries) handles transient failures gracefully without crashing.
+* **Persistence:** All notifications stored in SQLite (`cybershield.db -> notifications` table).
+
+### 5. Frontend & Backend Presentation Layer
+* **CyberShield Native Android App (`CyberShield/`):** **The sole frontend for this project.** Native Kotlin + Jetpack Compose application featuring:
+  - Cases Queue with plain-language summaries and filtering.
+  - Case Detail Screen with XAI evidence, money trail diagrams, action decisions ("Send to Police", "Freeze Account", "Dismiss"), and authoritative `NotificationDeliveryCard` delivery status.
+  - Interactive Radar Map (MapLibre OSM) with spatial clustering and terminal markers.
+  - Activity screen displaying tamper-evident audit ledger entries.
+* **FastAPI Backend Service (`api/server.py`):** Lightweight JSON REST API running on `0.0.0.0:8080` for local LAN access by Android physical devices and emulators:
+  - `GET /cases`: Retrieve active cases with investigation state.
+  - `GET /cases/{case_id}/notifications`: Retrieve authoritative notification delivery items.
+  - `POST /cases/{case_id}/notify`: Trigger manual or programmatic notifications.
+  - `POST /cases/{case_id}/act`: Execute investigator decisions (freeze, approve, escalate).
+
+> **FRONTEND ARCHITECTURE MANDATE:**
+> There is **NO** web frontend, HTML dashboard, or JavaScript framework. The CyberShield Native Android Kotlin App is the exclusive presentation client.
 
 ---
 
@@ -72,16 +105,23 @@ CyberShield Native Android App        FastAPI Web Dashboard
 # Install dependencies
 pip install -r requirements.txt
 
-# Run complete test suite (24 unit, schema, rule, and integration tests)
+# Run complete test suite (127+ unit, notification, schema, rule, and integration tests)
 pytest tests/ -v
 ```
 
-### B. Generate Synthetic Data
+### B. Run Sprint 4 Notification Demo
 ```bash
-python data-generator/generate.py
+# Run operational end-to-end notification lifecycle demo
+python -m scripts.demo_notification_system
 ```
 
-### C. Run Full Live Streaming Pipeline
+### C. Start Backend API Server for CyberShield Android
+```bash
+# Start FastAPI backend (LAN accessible on port 8080)
+python -m uvicorn api.server:app --host 0.0.0.0 --port 8080
+```
+
+### D. Run Full Live Streaming Pipeline
 ```bash
 # 1. Start Kafka Broker
 docker compose up -d
@@ -94,12 +134,6 @@ python detection/scorer.py
 
 # 4. Publish Live Transactions Stream (Terminal 3)
 python data-generator/producer.py
-```
-
-### D. Run Web Dashboard
-```bash
-python detection/dashboard/app.py
-# Open http://localhost:8000 in your browser
 ```
 
 ### E. Build CyberShield Android App

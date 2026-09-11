@@ -23,6 +23,7 @@ from audit.blockchain_lite import AuditLedger
 from detection.transaction_control import TransactionControlManager
 from pipeline.fund_traceability import FundTraceabilityEngine
 from pipeline.geo_intelligence import WithdrawalGeoIntelligence
+from pipeline.notification_service import NotificationEvent, NotificationEventType, NotificationService
 from pipeline.police_alert_delivery import PoliceAlertManager
 from shared.persistence import Store
 from shared.schemas import (
@@ -48,6 +49,7 @@ class CaseOrchestrator:
         geo_intel: Optional[WithdrawalGeoIntelligence] = None,
         police_mgr: Optional[PoliceAlertManager] = None,
         ledger: Optional[AuditLedger] = None,
+        notification_service: Optional[NotificationService] = None,
     ) -> None:
         self.store = store or Store()
         self.control_mgr = control_mgr or TransactionControlManager(store=self.store)
@@ -57,6 +59,7 @@ class CaseOrchestrator:
             store=self.store, trace_engine=self.trace_engine, geo_intel=self.geo_intel
         )
         self.ledger = ledger or AuditLedger()
+        self.notification_service = notification_service or NotificationService(store=self.store)
 
     # ------------------------------------------------------------------------
     # 1. Derived Priority & Police Eligibility Policy
@@ -249,6 +252,29 @@ class CaseOrchestrator:
             "timestamp": now_str,
         })
 
+        # Operational Notification: HIGH_RISK_CASE
+        if eval_res["priority"] in ("HIGH", "CRITICAL") or risk_score >= 0.60:
+            term_id = None
+            if predicted_terminals and len(predicted_terminals) > 0:
+                first_term = predicted_terminals[0]
+                term_id = first_term.get("terminal_id") if isinstance(first_term, dict) else getattr(first_term, "terminal_id", str(first_term))
+            try:
+                self.notification_service.notify(NotificationEvent(
+                    event_type=NotificationEventType.HIGH_RISK_CASE,
+                    case_id=cid,
+                    account_id=account_id,
+                    amount=float(suspicious_amount),
+                    terminal_id=term_id,
+                    timestamp=now_str,
+                    confidence=float(confidence),
+                    risk_score=float(risk_score),
+                    evidence=list(evidence),
+                    status=CaseLifecycleState.PRE_COMPLAINT_INTERVENTION,
+                    details={"priority": eval_res["priority"], "transaction_id": transaction_id},
+                ))
+            except Exception as notif_err:
+                log.warning(f"[ORCHESTRATOR] Notification dispatch failed (continuing): {notif_err}")
+
         log.info(f"[ORCHESTRATOR] Initialized case {cid} for account {account_id} (Priority: {eval_res['priority']})")
         return case_rec
 
@@ -350,6 +376,23 @@ class CaseOrchestrator:
             )
             self.store.save_timeline_event(tl_event)
 
+            # Operational Notification: CONFIRMED_FRAUD
+            try:
+                self.notification_service.notify(NotificationEvent(
+                    event_type=NotificationEventType.CONFIRMED_FRAUD,
+                    case_id=cid,
+                    account_id=case_dict.get("flagged_account_id", ""),
+                    amount=float(case_dict.get("suspicious_amount", 0.0)),
+                    timestamp=now_str,
+                    confidence=float(case_dict.get("confidence", 0.95)),
+                    risk_score=float(case_dict.get("risk_score", 0.95)),
+                    evidence=list(case_dict.get("evidence", [])),
+                    status=CaseLifecycleState.CONFIRMED_FRAUD,
+                    details={"recovery_case_id": rec_case.case_id, "notes": notes},
+                ))
+            except Exception as notif_err:
+                log.warning(f"[ORCHESTRATOR] Notification dispatch failed (continuing): {notif_err}")
+
             log.info(f"[ORCHESTRATOR] Case {cid} ESCALATED to CONFIRMED_FRAUD (Recovery Case: {rec_case.case_id}).")
 
         return self._dict_to_case_record(case_dict)
@@ -432,6 +475,35 @@ class CaseOrchestrator:
         )
         self.store.save_timeline_event(tl_event)
 
+        # Operational Notification: CASHOUT_ATTEMPT_DETECTED & WITHDRAWAL_BLOCKED
+        try:
+            self.notification_service.notify(NotificationEvent(
+                event_type=NotificationEventType.CASHOUT_ATTEMPT_DETECTED,
+                case_id=matched_cid,
+                account_id=account_id,
+                amount=amount_inr,
+                terminal_id=terminal_id,
+                terminal_location=getattr(attempt_event, "location", None) or terminal_id,
+                timestamp=now_str,
+                status=str(attempt_event.status),
+                details={"attempt_id": attempt_id, "is_blocked": bool(attempt_event.is_blocked)},
+            ))
+
+            if attempt_event.is_blocked or str(attempt_event.status).upper() in ("BLOCKED", "INTERCEPTED"):
+                self.notification_service.notify(NotificationEvent(
+                    event_type=NotificationEventType.WITHDRAWAL_BLOCKED,
+                    case_id=matched_cid,
+                    account_id=account_id,
+                    amount=amount_inr,
+                    terminal_id=terminal_id,
+                    terminal_location=getattr(attempt_event, "location", None) or terminal_id,
+                    timestamp=now_str,
+                    status=str(attempt_event.status),
+                    details={"attempt_id": attempt_id, "reason": attempt_event.reason},
+                ))
+        except Exception as notif_err:
+            log.warning(f"[ORCHESTRATOR] Withdrawal notification dispatch failed (continuing): {notif_err}")
+
         log.info(f"[ORCHESTRATOR] Withdrawal attempt recorded for case {matched_cid} at {terminal_id} (Status: {attempt_event.status})")
         return self._dict_to_case_record(case_dict)
 
@@ -484,6 +556,21 @@ class CaseOrchestrator:
         )
         self.store.save_timeline_event(tl_event)
 
+        # Operational Notification: CASE_ESCALATED
+        try:
+            self.notification_service.notify(NotificationEvent(
+                event_type=NotificationEventType.CASE_ESCALATED,
+                case_id=case_id,
+                account_id=case_dict.get("flagged_account_id", ""),
+                amount=float(case_dict.get("suspicious_amount", 0.0)),
+                timestamp=now_str,
+                status=CaseLifecycleState.POST_COMPLAINT_ESCALATED,
+                evidence=list(case_dict.get("evidence", [])),
+                details={"complaint_id": complaint_id, "fir_number": fir_number},
+            ))
+        except Exception as notif_err:
+            log.warning(f"[ORCHESTRATOR] Escalation notification dispatch failed (continuing): {notif_err}")
+
         log.info(f"[ORCHESTRATOR] Attached FIR/Complaint {complaint_id} to case {case_id}. State: POST_COMPLAINT_ESCALATED.")
         return self._dict_to_case_record(case_dict)
 
@@ -523,6 +610,21 @@ class CaseOrchestrator:
             details={"reason": reason, "escalation_level": case_dict["escalation_level"]},
         )
         self.store.save_timeline_event(tl_event)
+
+        # Operational Notification: CASE_ESCALATED
+        try:
+            self.notification_service.notify(NotificationEvent(
+                event_type=NotificationEventType.CASE_ESCALATED,
+                case_id=case_id,
+                account_id=case_dict.get("flagged_account_id", ""),
+                amount=float(case_dict.get("suspicious_amount", 0.0)),
+                timestamp=now_str,
+                status=case_dict.get("state", CaseLifecycleState.POST_COMPLAINT_ESCALATED),
+                evidence=list(case_dict.get("evidence", [])),
+                details={"reason": reason, "escalation_level": case_dict["escalation_level"]},
+            ))
+        except Exception as notif_err:
+            log.warning(f"[ORCHESTRATOR] Escalation notification dispatch failed (continuing): {notif_err}")
 
         log.info(f"[ORCHESTRATOR] Case {case_id} manually escalated to CRITICAL by {actor_role}.")
         return self._dict_to_case_record(case_dict)
@@ -637,6 +739,25 @@ class CaseOrchestrator:
             },
         )
         self.store.save_timeline_event(tl_event)
+
+        # Operational Notification: POLICE_ALERT_SENT
+        try:
+            tid = None
+            if police_alert_rec.nearby_terminals:
+                first_term = police_alert_rec.nearby_terminals[0]
+                tid = first_term.get("terminal_id") if isinstance(first_term, dict) else getattr(first_term, "terminal_id", str(first_term))
+            self.notification_service.notify(NotificationEvent(
+                event_type=NotificationEventType.POLICE_ALERT_SENT,
+                case_id=case_id,
+                account_id=case_dict.get("flagged_account_id", ""),
+                amount=float(case_dict.get("suspicious_amount", 0.0)),
+                terminal_id=tid,
+                timestamp=now_str,
+                status=CaseLifecycleState.POLICE_ALERT_SENT,
+                details={"police_alert_id": police_alert_rec.police_alert_id, "priority": police_alert_rec.priority},
+            ))
+        except Exception as notif_err:
+            log.warning(f"[ORCHESTRATOR] Police alert notification dispatch failed (continuing): {notif_err}")
 
         log.info(f"[ORCHESTRATOR] Police alert {police_alert_rec.police_alert_id} linked to case {case_id}.")
         return {

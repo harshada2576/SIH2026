@@ -1075,5 +1075,123 @@ class PoliceAlertRecord:
         }
 
 
+# ============================================================================
+# 11. NOTIFICATION SYSTEM SCHEMAS (Sprint 4 - SIH26184)
+# ============================================================================
+
+class NotificationChannel:
+    """Supported delivery channels."""
+    SMS = "SMS"
+    EMAIL = "EMAIL"
 
 
+class NotificationEventType:
+    """Operational events that trigger notification dispatch."""
+    HIGH_RISK_CASE = "HIGH_RISK_CASE"
+    CONFIRMED_FRAUD = "CONFIRMED_FRAUD"
+    CASHOUT_ATTEMPT_DETECTED = "CASHOUT_ATTEMPT_DETECTED"
+    WITHDRAWAL_BLOCKED = "WITHDRAWAL_BLOCKED"
+    CASE_ESCALATED = "CASE_ESCALATED"
+    POLICE_ALERT_SENT = "POLICE_ALERT_SENT"
+    PENDING_CONFIRMATION = "PENDING_CONFIRMATION"
+
+
+class NotificationDeliveryStatus:
+    """Lifecycle states of a notification delivery attempt."""
+    PENDING = "PENDING"
+    SENT = "SENT"
+    FAILED = "FAILED"
+    RETRYING = "RETRYING"
+
+
+class NotificationRecipientGroup:
+    """Configurable recipient groups."""
+    BANK_OFFICIAL = "BANK_OFFICIAL"
+    SECURITY_TEAM = "SECURITY_TEAM"
+    INVESTIGATION_TEAM = "INVESTIGATION_TEAM"
+
+
+@dataclass
+class NotificationRecord:
+    """Persisted record of an SMS or Email notification attempt."""
+    notification_id: str
+    case_id: str
+    event_type: str
+    channel: str
+    recipient: str
+    recipient_group: str = NotificationRecipientGroup.BANK_OFFICIAL
+    subject: str = ""
+    message_body: str = ""
+    status: str = NotificationDeliveryStatus.PENDING
+    is_simulated: bool = True
+    retry_count: int = 0
+    error: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    payload_json: Dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    sent_at: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "notification_id": self.notification_id,
+            "case_id": self.case_id,
+            "event_type": self.event_type,
+            "channel": self.channel,
+            "recipient": self.recipient,
+            "recipient_group": self.recipient_group,
+            "subject": self.subject,
+            "message_body": self.message_body,
+            "status": self.status,
+            "is_simulated": bool(self.is_simulated),
+            "retry_count": self.retry_count,
+            "error": self.error,
+            "idempotency_key": self.idempotency_key,
+            "payload_json": dict(self.payload_json),
+            "created_at": self.created_at,
+            "sent_at": self.sent_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "NotificationRecord":
+        payload = data.get("payload_json")
+        if isinstance(payload, str):
+            try:
+                import json
+                payload = json.loads(payload)
+            except Exception:
+                payload = {}
+        elif not isinstance(payload, dict):
+            payload = {}
+
+        return cls(
+            notification_id=str(data["notification_id"]),
+            case_id=str(data["case_id"]),
+            event_type=str(data.get("event_type", "")),
+            channel=str(data.get("channel", "")),
+            recipient=str(data.get("recipient", "")),
+            recipient_group=str(data.get("recipient_group", NotificationRecipientGroup.BANK_OFFICIAL)),
+            subject=str(data.get("subject", "")),
+            message_body=str(data.get("message_body", "")),
+            status=str(data.get("status", NotificationDeliveryStatus.PENDING)),
+            is_simulated=bool(data.get("is_simulated", True)),
+            retry_count=int(data.get("retry_count", 0)),
+            error=data.get("error"),
+            idempotency_key=data.get("idempotency_key"),
+            payload_json=payload,
+            created_at=str(data.get("created_at", datetime.now(timezone.utc).isoformat())),
+            sent_at=data.get("sent_at"),
+        )
+
+
+@dataclass
+class NotificationRequest:
+    """Request payload sent to NotificationProvider adapters."""
+    case_id: str
+    event_type: str
+    channel: str
+    recipient: str
+    recipient_group: str = NotificationRecipientGroup.BANK_OFFICIAL
+    subject: str = ""
+    message_body: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    idempotency_key: Optional[str] = None

@@ -218,8 +218,41 @@ async def act_on_case(ncrp_id: str, action: str, request: Request):
         body = await request.json()
     except Exception:
         body = {}
-    officer = body.get("officer") or "Duty officer"
     
+    if action == "notify":
+        case = ENGINE.get(ncrp_id)
+        if not case:
+            raise HTTPException(status_code=404, detail=f"Case {ncrp_id} not found")
+        from pipeline.notification_service import NotificationEvent
+        ev_type = body.get("event_type", "HIGH_RISK_CASE")
+        results = ENGINE.notification_service.notify(NotificationEvent(
+            event_type=ev_type,
+            case_id=ncrp_id,
+            account_id=case.get("flaggedAccountId", ""),
+            amount=float(body.get("amount") or case.get("suspiciousExposure") or 100000.0),
+            terminal_id=case.get("targetTerminal", {}).get("id"),
+            terminal_location=case.get("targetTerminal", {}).get("address"),
+            status=case.get("status"),
+            details=body,
+        ))
+        case["notificationStatus"] = ENGINE.notification_service.get_case_notification_summary(ncrp_id).get("channels", {})
+        case["notifications"] = ENGINE.notification_service.get_case_notification_summary(ncrp_id).get("items", [])
+        
+        await ws_manager.broadcast("CASE_UPDATED", {
+            "case": case,
+            "action": "notify",
+            "ncrpId": ncrp_id,
+            "audit": ENGINE.audit[0] if ENGINE.audit else None
+        })
+        
+        return {
+            "ok": True,
+            "case_id": ncrp_id,
+            "dispatched_count": len(results),
+            "notifications": [r.to_dict() for r in results],
+        }
+
+    officer = body.get("officer") or "Duty officer"
     updated_case = ENGINE.act(ncrp_id, action, officer)
     if updated_case is None:
         raise HTTPException(status_code=404, detail=f"Case {ncrp_id} not found")
@@ -234,6 +267,20 @@ async def act_on_case(ncrp_id: str, action: str, request: Request):
     })
 
     return updated_case
+
+
+@app.get("/cases/{case_id}/notifications")
+async def get_case_notifications(case_id: str):
+    case = ENGINE.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    notifs = ENGINE.notification_service.get_case_notifications(case_id)
+    summary = ENGINE.notification_service.get_case_notification_summary(case_id)
+    return {
+        "case_id": case_id,
+        "summary": summary,
+        "notifications": notifs,
+    }
 
 
 @app.get("/terminals")

@@ -84,6 +84,25 @@ def dispatch(alert: RiskAlert, kafka_topic: Optional[str] = "risk_alerts",
             log.warning(f"Persistence of intervention failed (continuing): {e}")
     except Exception as e:  # auto-intervention must never crash the alert path
         log.warning(f"Auto-intervention failed (continuing): {e}")
+
+    if resolved_band in ("HIGH", "CRITICAL"):
+        try:
+            from pipeline.notification_service import NotificationService, NotificationEvent, NotificationEventType
+            tid = alert.predicted_terminals[0].terminal_id if alert.predicted_terminals else None
+            NotificationService().notify(NotificationEvent(
+                event_type=NotificationEventType.HIGH_RISK_CASE,
+                case_id=alert.complaint_id,
+                account_id=alert.flagged_account_id,
+                terminal_id=tid,
+                risk_score=alert.risk_score,
+                confidence=alert.confidence,
+                evidence=list(alert.evidence),
+                status=resolved_band,
+                details={"band": resolved_band},
+            ))
+        except Exception as e:
+            log.warning(f"Notification dispatch failed (continuing): {e}")
+
     print(line)
 
 

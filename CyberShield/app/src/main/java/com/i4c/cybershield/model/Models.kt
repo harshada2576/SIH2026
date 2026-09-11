@@ -125,6 +125,27 @@ data class RepeatActivity(
     val multiplier: Double = 1.0
 )
 
+/** Recorded notification item dispatched by backend */
+data class NotificationItem(
+    val notificationId: String = "",
+    val channel: String = "",
+    val eventType: String = "",
+    val recipient: String = "",
+    val recipientGroup: String = "",
+    val status: String = "SENT",
+    val isSimulated: Boolean = true,
+    val timestamp: String = "",
+    val preview: String = ""
+)
+
+/** Channel delivery status */
+data class NotificationChannelStatus(
+    val status: String = "NOT_SENT",
+    val isSimulated: Boolean = true,
+    val timestamp: String? = null,
+    val count: Int = 0
+)
+
 /**
  * One suspicious-money-flow case, from complaint to (eventually) resolution.
  * This is the single unit an investigator opens, reviews, and acts on.
@@ -155,7 +176,9 @@ data class ComplaintTicket(
     val simHash: String = "",
     val deviceFingerprint: String = "",
     val confidencePercent: Int = 0,
-    val evidence: List<String> = emptyList()
+    val evidence: List<String> = emptyList(),
+    val notificationStatus: Map<String, NotificationChannelStatus> = emptyMap(),
+    val notifications: List<NotificationItem> = emptyList()
 )
 
 /** An audit log entry — the accountability trail of every action taken */
@@ -315,3 +338,11 @@ data class InvestigationCase(
     val atmBlockRequested: Boolean = true,
     val leaNotificationSent: Boolean = true
 )
+
+data class Quadruple<A, B, C, D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
+)
+

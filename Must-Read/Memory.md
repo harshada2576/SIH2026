@@ -61,3 +61,27 @@ When you close an AI chat session and open a new one tomorrow (or switch tools m
   - All 62 pytest backend tests passing.
   - Mock services (Bank API port 8001, NCRP/I4C port 8002) and E2E demo scenarios verified and operational via `./run.sh`.
 
+### Sept 11, 2026 — Sprint 4: SMS & Email Notification Subsystem & Web Dashboard Cleanup
+- What we built/changed:
+  - Web Dashboard Cleanup: Completely scrubbed all lingering references to the obsolete HTML/FastAPI web dashboard in all documentation files (`README.md`, `Must-Read/Architecture.md`, `Must-Read/PRD.md`, `Must-Read/Phases.md`). Reaffirmed that **CyberShield Native Android Kotlin App (`CyberShield/`)** is the sole user-facing interface.
+  - Core Notification Engine (`pipeline/notification_service.py`):
+    - Provider adapters: `MockSmsProvider` and `MockEmailProvider` with explicit `[SIMULATED]` labeling; `RealSmsProvider` (HTTP/REST) and `SmtpEmailProvider` (SMTP/TLS) configurable via env vars without hardcoded credentials.
+    - Supports 7 key events: `HIGH_RISK_CASE`, `CONFIRMED_FRAUD`, `CASHOUT_ATTEMPT_DETECTED`, `WITHDRAWAL_BLOCKED`, `CASE_ESCALATED`, `POLICE_ALERT_SENT`, `PENDING_CONFIRMATION`.
+    - Concise SMS formatting (<160 chars) and structured HTML + plain text email formatting.
+    - Deterministic SHA-256 idempotency key prevents duplicate notifications.
+    - Bounded retry mechanism (max 3 retries) with exponential backoff and non-blocking failure isolation.
+  - SQLite Persistence (`shared/persistence.py`):
+    - Added `notifications` table schema, indices, and querying helpers (`save_notification`, `update_notification_status`, `get_notifications_for_case`, `recent_notifications`).
+  - Pipeline & Engine Integration:
+    - Wired `NotificationService` into `pipeline/case_orchestrator.py` across case ingestion, customer confirmation, withdrawal attempt interception, and police escalation.
+    - Wired `NotificationService` into `detection/alert_dispatcher.py` on high/critical risk bands.
+    - Wired into `api/engine.py` (case creation, actions, summaries) and `api/server.py` (`GET /cases/{case_id}/notifications`, `POST /cases/{case_id}/notify`).
+  - CyberShield Android App Integration:
+    - Added `NotificationItem` and `NotificationChannelStatus` data classes in `Models.kt`.
+    - Added JSON response parsing in `CyberShieldApi.kt`.
+    - Added `NotificationDeliveryCard` and `ChannelStatusTile` composables in `CaseDetailScreen.kt`.
+  - Verification & Deliverables:
+    - Unit test suite `tests/test_notifications.py` covering Tests A through J (10/10 passed). Full regression suite (127 passed, 1 skipped).
+    - Gradle compilation: `gradlew.bat compileDebugKotlin` BUILD SUCCESSFUL.
+    - Operational demo script: `scripts/demo_notification_system.py` executes all 6 steps end-to-end.
+

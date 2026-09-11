@@ -17,6 +17,7 @@ from audit.blockchain_lite import AuditLedger
 from detection import scorer
 from detection.auto_intervention import decide as decide_intervention
 from pipeline.graph_store import GraphStore
+from pipeline.notification_service import NotificationEvent, NotificationEventType, NotificationService
 from scripts.demo_phase2 import (
     build_critical_saturation_case,
     build_geo_velocity_scenario,
@@ -460,6 +461,7 @@ class CaseEngine:
         self.audit: List[dict] = []
         self.ledger = AuditLedger()
         self.store = Store()
+        self.notification_service = NotificationService(store=self.store)
         self._build()
 
     def _build(self) -> None:
@@ -594,8 +596,27 @@ class CaseEngine:
             status = "BANK_HOLD"
             digital = True
         lifecycle = "PRE_COMPLAINT_INTERVENTION"
-        if attempts:
-            lifecycle = "CASHOUT_ATTEMPT_DETECTED"
+        # Ensure initial HIGH_RISK_CASE notification is recorded if risk is significant
+        if risk in ("HIGH", "CRITICAL") or (ev.score >= 60):
+            try:
+                self.notification_service.notify(NotificationEvent(
+                    event_type=NotificationEventType.HIGH_RISK_CASE,
+                    case_id=alert.complaint_id,
+                    account_id=account_id,
+                    amount=exposure or (alert.risk_score * 100000),
+                    terminal_id=marker["id"],
+                    terminal_location=marker["address"],
+                    confidence=alert.confidence or (conf / 100.0),
+                    risk_score=alert.risk_score,
+                    evidence=list(alert.evidence),
+                    status=status,
+                    details={"band": risk, "interventionTier": decision.tier},
+                ))
+            except Exception:
+                pass
+
+        notif_summary = self.notification_service.get_case_notification_summary(alert.complaint_id)
+
         return {
             "ncrpId": alert.complaint_id,
             "reportedLoss": _inr(exposure or alert.risk_score * 100000),
@@ -624,6 +645,8 @@ class CaseEngine:
             "deviceFingerprint": str(device),
             "confidencePercent": conf,
             "evidence": list(alert.evidence),
+            "notificationStatus": notif_summary.get("channels", {}),
+            "notifications": notif_summary.get("items", []),
         }
 
     def list_cases(self, role: str = "BANK") -> List[dict]:
@@ -666,6 +689,30 @@ class CaseEngine:
             case["complaintId"] = case["complaintId"] or ncrp_id
             self._bank(acc, "freeze", case)
             self._log(ncrp_id, "Forwarded to police with ATM/location pack", "APPROVED", officer)
+
+            # Operational Notification: POLICE_ALERT_SENT & CASE_ESCALATED
+            try:
+                self.notification_service.notify(NotificationEvent(
+                    event_type=NotificationEventType.POLICE_ALERT_SENT,
+                    case_id=ncrp_id,
+                    account_id=acc,
+                    amount=case.get("suspiciousExposure") or 100000.0,
+                    terminal_id=case.get("targetTerminal", {}).get("id"),
+                    terminal_location=case.get("targetTerminal", {}).get("address"),
+                    status="APPROVED",
+                    details={"action": "escalate", "officer": officer},
+                ))
+                self.notification_service.notify(NotificationEvent(
+                    event_type=NotificationEventType.CASE_ESCALATED,
+                    case_id=ncrp_id,
+                    account_id=acc,
+                    amount=case.get("suspiciousExposure") or 100000.0,
+                    status="APPROVED",
+                    details={"action": "escalate", "officer": officer},
+                ))
+            except Exception:
+                pass
+
         elif action == "dismiss":
             case["status"] = "DISMISSED"
             case["lifecycle"] = "RESOLVED"
@@ -692,15 +739,28 @@ class CaseEngine:
             case["status"] = "BANK_HOLD"
             self._bank(acc, "freeze", case)
             self._log(ncrp_id, "NCRP complaint linked — online and physical ATM block", "BANK_HOLD", officer)
+            try:
+                self.notification_service.notify(NotificationEvent(
+                    event_type=NotificationEventType.CASE_ESCALATED,
+                    case_id=ncrp_id,
+                    account_id=acc,
+                    amount=case.get("suspiciousExposure") or 100000.0,
+                    status="BANK_HOLD",
+                    details={"action": "file_complaint", "officer": officer},
+                ))
+            except Exception:
+                pass
         elif action == "simulate_withdraw":
             term = case["targetTerminal"]
+            is_blocked = bool(case["digitalBlockActive"] or case["atmBlockActive"])
+            status_label = "BLOCKED" if is_blocked else "FLAGGED"
             case["withdrawalAttempts"].append({
                 "attemptId": f"live-{len(case['withdrawalAttempts'])+1}",
                 "time": datetime.now(timezone.utc).isoformat(),
                 "amount": "₹10,000",
                 "terminalId": term["id"],
                 "location": term["address"],
-                "status": "BLOCKED" if (case["digitalBlockActive"] or case["atmBlockActive"]) else "FLAGGED",
+                "status": status_label,
                 "latitude": term["latitude"],
                 "longitude": term["longitude"],
             })
@@ -714,6 +774,37 @@ class CaseEngine:
                 "multiplier": 1.0 + 0.25 * max(0, n - 1),
             }
             self._log(ncrp_id, f"Cash-out attempt at {term['id']} recorded for police", "EN_ROUTE", officer)
+
+            # Operational Notification: CASHOUT_ATTEMPT_DETECTED & WITHDRAWAL_BLOCKED
+            try:
+                self.notification_service.notify(NotificationEvent(
+                    event_type=NotificationEventType.CASHOUT_ATTEMPT_DETECTED,
+                    case_id=ncrp_id,
+                    account_id=acc,
+                    amount=10000.0,
+                    terminal_id=term["id"],
+                    terminal_location=term["address"],
+                    status=status_label,
+                    details={"is_blocked": is_blocked},
+                ))
+                if is_blocked:
+                    self.notification_service.notify(NotificationEvent(
+                        event_type=NotificationEventType.WITHDRAWAL_BLOCKED,
+                        case_id=ncrp_id,
+                        account_id=acc,
+                        amount=10000.0,
+                        terminal_id=term["id"],
+                        terminal_location=term["address"],
+                        status=status_label,
+                        details={"is_blocked": True},
+                    ))
+            except Exception:
+                pass
+
+        # Refresh notification status on returned case object
+        notif_summary = self.notification_service.get_case_notification_summary(ncrp_id)
+        case["notificationStatus"] = notif_summary.get("channels", {})
+        case["notifications"] = notif_summary.get("items", [])
         return case
 
     def _bank(self, account_id: str, action: str, case: dict) -> None:

@@ -156,13 +156,19 @@ SIH2026/
 │   │   ├── velocity_rule.py
 │   │   ├── device_fingerprint_rule.py
 │   │   └── terminal_affinity_rule.py
-│   ├── alert_dispatcher.py        # publishes to "risk_alerts" topic + console/webhook stub
-│   ├── dashboard/
-│   │   ├── app.py                 # FastAPI serving alert data + static files
-│   │   ├── static/
-│   │   │   └── index.html         # Leaflet map + evidence side panel
-│   │   └── requirements.txt
+│   ├── alert_dispatcher.py        # publishes to "risk_alerts" topic + triggers notification service
 │   └── requirements.txt
+│
+├── pipeline/
+│   ├── notification_service.py    # Sprint 4: SMS & Email dispatch engine, retry, idempotency
+│   └── case_orchestrator.py       # End-to-end case state machine
+│
+├── api/
+│   ├── server.py                  # FastAPI REST API serving CyberShield Android client
+│   └── engine.py                  # CaseEngine business logic
+│
+├── CyberShield/                   # SOLE FRONTEND (Native Android Kotlin + Jetpack Compose)
+│   └── app/                       # Android app module (Radar Map, Cases Queue, Case Detail)
 │
 ├── scripts/
 │   ├── run_all.sh                 # convenience script: docker compose up, then start all 3 pieces
@@ -230,10 +236,10 @@ SIH2026/
   "district_pincode": "201301"
 }
 ```
-Generate ~30-100 fake terminals spread across a few fake "districts" — this is what your Leaflet map plots.
+Generate ~30-100 fake terminals spread across a few fake "districts" — this is what your CyberShield Android Radar Map plots.
 
 ### 6.4 Risk alert
-**Topic:** `risk_alerts` | **Produced by:** Workstream 3 | **Consumed by:** Alert Dispatcher + Dashboard
+**Topic:** `risk_alerts` | **Produced by:** Workstream 3 | **Consumed by:** Alert Dispatcher + Notification Subsystem + CyberShield Android App
 
 ```json
 {
@@ -312,8 +318,35 @@ You are **not** building a system that ingests real GBs of data. You are buildin
 - `confluent-kafka` client: docs.confluent.io/kafka-clients/python
 - `networkx` docs (graph algorithms, motif/subgraph tools): networkx.org/documentation
 - FastAPI docs: fastapi.tiangolo.com
-- Leaflet.js docs: leafletjs.com/reference.html
+- CyberShield Native Android (Kotlin + Jetpack Compose): developer.android.com/jetpack/compose
 - AMLSim (IBM's synthetic AML transaction generator — the reference architecture your generator should take inspiration from for realistic fan-in/fan-out/layering patterns and power-law amount distributions): github.com/IBM/AMLSim
 - NCRP (National Cybercrime Reporting Portal) — cite as your real-world complaint-volume source: cybercrime.gov.in
 - RBI MuleHunter.AI — search "RBI MuleHunter.AI pilot" for the official press coverage; cite as the real, already-deployed account-detection precedent your system extends.
 - I4C (Indian Cybercrime Coordination Centre) — reference for JCCT/coordination-layer framing.
+
+---
+
+## 11. Sprint 4: SMS & Email Notification Subsystem
+
+### 11.1 Architecture & Flow
+```text
+Fraud / Risk Event
+        ↓
+Case / Alert (CaseOrchestrator)
+        ↓
+Notification Service (pipeline/notification_service.py)
+       ├────────→ SMS (MockSmsProvider [SIMULATED] or RealSmsProvider via HTTP)
+       └────────→ Email (MockEmailProvider [SIMULATED] or SmtpEmailProvider via SMTP)
+        ↓
+SQLite Persistent Storage (cybershield.db -> notifications)
+        ↓
+Backend REST API (api/server.py -> /cases/{case_id}/notifications)
+        ↓
+CyberShield Native Android App (CaseDetailScreen -> NotificationDeliveryCard)
+```
+
+### 11.2 Key Features
+1. **Multi-Channel & Multi-Group:** Dispatches concise SMS (<160 chars) and structured HTML + plain text emails to `BANK_OFFICIAL`, `SECURITY_TEAM`, and `INVESTIGATION_TEAM`.
+2. **Deterministic Idempotency:** SHA-256 hash of `(case_id, event_type, channel, recipient)` prevents duplicate notification spam.
+3. **Bounded Retry & Resilience:** Up to 3 retries with exponential backoff for transient failures (`PENDING` -> `RETRYING` -> `SENT`/`FAILED`) without impacting transaction pipeline.
+4. **Mock vs Real Integrity:** Safe mock delivery is explicitly tagged `[SIMULATED]`. Real gateways are configurable via environment variables without hardcoded secrets.

@@ -261,6 +261,25 @@ CREATE TABLE IF NOT EXISTS police_alerts (
     payload_json TEXT NOT NULL,
     FOREIGN KEY (case_id) REFERENCES cases(case_id)
 );
+
+CREATE TABLE IF NOT EXISTS notifications (
+    notification_id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    recipient TEXT NOT NULL,
+    recipient_group TEXT,
+    subject TEXT,
+    message_body TEXT NOT NULL,
+    status TEXT NOT NULL,
+    is_simulated INTEGER DEFAULT 1,
+    retry_count INTEGER DEFAULT 0,
+    error TEXT,
+    idempotency_key TEXT UNIQUE,
+    payload_json TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    sent_at TEXT
+);
 """
 
 
@@ -1253,6 +1272,158 @@ class Store:
             self.save_case(c_rec)
 
         return alert_dict
+
+    # ------------------------------------------------------------------------
+    # 13. Notifications Store (Sprint 4 - SIH26184)
+    # ------------------------------------------------------------------------
+
+    def _hydrate_notification(self, cur: sqlite3.Cursor, row: tuple) -> Dict[str, Any]:
+        cols = [col[0] for col in cur.description]
+        d = dict(zip(cols, row))
+        if "payload_json" in d and d["payload_json"]:
+            try:
+                d["payload_json"] = json.loads(d["payload_json"])
+            except Exception:
+                d["payload_json"] = {}
+        else:
+            d["payload_json"] = {}
+        d["is_simulated"] = bool(d.get("is_simulated", 1))
+        return d
+
+    def save_notification(self, notif: Any) -> bool:
+        """Persist or update a notification record into SQLite.
+        
+        Accepts a dict or NotificationRecord.
+        Returns True if inserted/updated.
+        """
+        if hasattr(notif, "to_dict"):
+            data = notif.to_dict()
+        elif isinstance(notif, dict):
+            data = notif
+        else:
+            raise TypeError(f"Expected dict or NotificationRecord, got: {type(notif)}")
+
+        notification_id = str(data["notification_id"])
+        case_id = str(data["case_id"])
+        event_type = str(data.get("event_type", ""))
+        channel = str(data.get("channel", ""))
+        recipient = str(data.get("recipient", ""))
+        recipient_group = str(data.get("recipient_group", "BANK_OFFICIAL"))
+        subject = str(data.get("subject", ""))
+        message_body = str(data.get("message_body", ""))
+        status = str(data.get("status", "PENDING"))
+        is_simulated = 1 if data.get("is_simulated", True) else 0
+        retry_count = int(data.get("retry_count", 0))
+        error = data.get("error")
+        idempotency_key = data.get("idempotency_key")
+        payload_raw = data.get("payload_json", {})
+        payload_json = json.dumps(payload_raw, default=str) if isinstance(payload_raw, dict) else str(payload_raw or "{}")
+        created_at = str(data.get("created_at", datetime.now(timezone.utc).isoformat()))
+        sent_at = data.get("sent_at")
+
+        cur = self._conn.execute(
+            """INSERT INTO notifications (
+                notification_id, case_id, event_type, channel, recipient,
+                recipient_group, subject, message_body, status, is_simulated,
+                retry_count, error, idempotency_key, payload_json, created_at, sent_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(notification_id) DO UPDATE SET
+                status = excluded.status,
+                is_simulated = excluded.is_simulated,
+                retry_count = excluded.retry_count,
+                error = excluded.error,
+                sent_at = excluded.sent_at,
+                payload_json = excluded.payload_json
+            """,
+            (
+                notification_id, case_id, event_type, channel, recipient,
+                recipient_group, subject, message_body, status, is_simulated,
+                retry_count, error, idempotency_key, payload_json, created_at, sent_at
+            ),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def update_notification_status(
+        self,
+        notification_id: str,
+        status: str,
+        error: Optional[str] = None,
+        sent_at: Optional[str] = None,
+        retry_count: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Update status, error, and sent_at timestamp for a notification."""
+        notif = self.get_notification(notification_id)
+        if not notif:
+            return None
+
+        notif["status"] = status
+        if error is not None:
+            notif["error"] = error
+        if sent_at is not None:
+            notif["sent_at"] = sent_at
+        elif status == "SENT" and not notif.get("sent_at"):
+            notif["sent_at"] = datetime.now(timezone.utc).isoformat()
+        if retry_count is not None:
+            notif["retry_count"] = retry_count
+
+        self.save_notification(notif)
+        return notif
+
+    def get_notification(self, notification_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch a single notification by notification_id."""
+        cur = self._conn.execute(
+            "SELECT * FROM notifications WHERE notification_id = ?",
+            (str(notification_id),),
+        )
+        row = cur.fetchone()
+        return self._hydrate_notification(cur, row) if row else None
+
+    def get_notification_by_idempotency_key(self, idempotency_key: str) -> Optional[Dict[str, Any]]:
+        """Fetch a notification by its unique idempotency key."""
+        if not idempotency_key:
+            return None
+        cur = self._conn.execute(
+            "SELECT * FROM notifications WHERE idempotency_key = ?",
+            (str(idempotency_key),),
+        )
+        row = cur.fetchone()
+        return self._hydrate_notification(cur, row) if row else None
+
+    def get_notifications_for_case(self, case_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Return all notifications associated with a specific case ID."""
+        cur = self._conn.execute(
+            "SELECT * FROM notifications WHERE case_id = ? ORDER BY created_at DESC LIMIT ?",
+            (str(case_id), limit),
+        )
+        rows = cur.fetchall()
+        return [self._hydrate_notification(cur, r) for r in rows if r]
+
+    def recent_notifications(
+        self,
+        limit: int = 50,
+        event_type: Optional[str] = None,
+        channel: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Query recent notifications with optional filtering."""
+        query = "SELECT * FROM notifications WHERE 1=1"
+        params = []
+        if event_type:
+            query += " AND event_type = ?"
+            params.append(str(event_type))
+        if channel:
+            query += " AND channel = ?"
+            params.append(str(channel))
+        if status:
+            query += " AND status = ?"
+            params.append(str(status))
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        cur = self._conn.execute(query, tuple(params))
+        rows = cur.fetchall()
+        return [self._hydrate_notification(cur, r) for r in rows if r]
 
     def close(self) -> None:
         self._conn.close()
