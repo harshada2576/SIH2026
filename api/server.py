@@ -401,12 +401,12 @@ async def trigger_live_fraud_alert():
     return {"status": "NO_ALERT_GENERATED"}
 
 
-def run(port: int = 8080) -> None:
+def run(port: int = 5003) -> None:
     import uvicorn
     app.state.port = port
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 
 
 if __name__ == "__main__":
-    port_arg = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+    port_arg = int(sys.argv[1]) if len(sys.argv) > 1 else 5003
     run(port_arg)

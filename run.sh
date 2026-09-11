@@ -136,8 +136,8 @@ run_server() {
 
     sleep 1
     log_success "Mock services active (Bank API: 8001, NCRP/I4C: 8002)"
-    log_info "Starting CyberShield FastAPI, WebSocket & Discovery server on 0.0.0.0:8080..."
-    $PYTHON -m api.server 8080
+    log_info "Starting CyberShield FastAPI, WebSocket & Discovery server on 0.0.0.0:5003..."
+    $PYTHON -m api.server 5003
 }
 
 run_demo() {

@@ -199,7 +199,7 @@ private fun NetworkStatusBar(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = if (connectionState == ConnectionState.CONNECTED) serverUrl.removePrefix("http://") else "Tap to configure",
+                    text = if (connectionState == ConnectionState.CONNECTED) serverUrl.removePrefix("https://").removePrefix("http://") else "Tap to configure",
                     fontSize = 11.sp,
                     color = BorderTaupe
                 )
@@ -226,7 +226,7 @@ private fun NetworkConfigDialog(
     onSaveManual: (host: String, port: Int) -> Unit
 ) {
     var manualIp by remember { mutableStateOf("") }
-    var manualPort by remember { mutableStateOf("8080") }
+    var manualPort by remember { mutableStateOf("5003") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
