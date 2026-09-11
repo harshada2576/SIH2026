@@ -87,6 +87,95 @@ PIN_LABEL = {
 }
 
 
+def _get_city_for_point(lat: float, lon: float, pincode: Optional[str] = None, address: Optional[str] = None) -> str:
+    pin = str(pincode or "").strip()
+    if pin:
+        if pin.startswith("11") or pin.startswith("12") or pin.startswith("20"):
+            return "Delhi/NCR"
+        elif pin.startswith("40"):
+            return "Mumbai"
+        elif pin.startswith("56"):
+            return "Bengaluru"
+        elif pin.startswith("50"):
+            return "Hyderabad"
+        elif pin.startswith("60"):
+            return "Chennai"
+        elif pin.startswith("70") or pin.startswith("71"):
+            return "Kolkata"
+        elif pin.startswith("41"):
+            return "Pune"
+        elif pin.startswith("38") or pin.startswith("382"):
+            return "Ahmedabad"
+        elif pin.startswith("30"):
+            return "Jaipur"
+        elif pin.startswith("22"):
+            return "Lucknow"
+        elif pin.startswith("68"):
+            return "Kochi"
+        elif pin.startswith("39"):
+            return "Surat"
+
+    if address:
+        addr_lower = address.lower()
+        if "delhi" in addr_lower or "noida" in addr_lower or "gurugram" in addr_lower:
+            return "Delhi/NCR"
+        if "mumbai" in addr_lower:
+            return "Mumbai"
+        if "bengaluru" in addr_lower or "bangalore" in addr_lower:
+            return "Bengaluru"
+        if "hyderabad" in addr_lower:
+            return "Hyderabad"
+        if "chennai" in addr_lower:
+            return "Chennai"
+        if "kolkata" in addr_lower:
+            return "Kolkata"
+        if "pune" in addr_lower:
+            return "Pune"
+        if "ahmedabad" in addr_lower or "gandhinagar" in addr_lower:
+            return "Ahmedabad"
+
+    if 28.0 <= lat <= 29.2 and 76.5 <= lon <= 77.8:
+        return "Delhi/NCR"
+    elif 18.7 <= lat <= 19.5 and 72.6 <= lon <= 73.3:
+        return "Mumbai"
+    elif 12.7 <= lat <= 13.3 and 77.3 <= lon <= 77.9:
+        return "Bengaluru"
+    elif 17.1 <= lat <= 17.7 and 78.1 <= lon <= 78.7:
+        return "Hyderabad"
+    elif 12.8 <= lat <= 13.3 and 80.0 <= lon <= 80.5:
+        return "Chennai"
+    elif 22.3 <= lat <= 22.9 and 88.1 <= lon <= 88.6:
+        return "Kolkata"
+    elif 18.3 <= lat <= 18.8 and 73.6 <= lon <= 74.1:
+        return "Pune"
+    elif 22.8 <= lat <= 23.3 and 72.3 <= lon <= 72.8:
+        return "Ahmedabad"
+
+    return "India (Other)"
+
+
+def _parse_time_filter(tf: Optional[str]) -> Optional[datetime]:
+    if not tf:
+        return None
+    tf_str = str(tf).strip().lower()
+    now = datetime.now(timezone.utc)
+    if tf_str in {"24h", "1d", "today"}:
+        return now - timedelta(hours=24)
+    elif tf_str in {"7d", "7days", "week"}:
+        return now - timedelta(days=7)
+    elif tf_str in {"30d", "30days", "month"}:
+        return now - timedelta(days=30)
+    elif tf_str in {"recent", "1h"}:
+        return now - timedelta(hours=1)
+    try:
+        dt = datetime.fromisoformat(str(tf).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -655,3 +744,273 @@ class CaseEngine:
             else:
                 out.append(_marker(t, 25, "No active prediction", "LOW"))
         return out
+
+    def get_heatmap_points(
+        self,
+        case_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        city: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        aggregate: bool = True,
+    ) -> dict:
+        raw_points: List[dict] = []
+
+        start_dt = _parse_time_filter(start_time)
+        end_dt = _parse_time_filter(end_time)
+
+        # 1. Active Case predicted cashout & nearby terminals
+        for c_id, case in self.cases.items():
+            if case_id and case_id != c_id:
+                continue
+
+            target = case.get("targetTerminal")
+            if target:
+                try:
+                    lat_val = target.get("latitude")
+                    lon_val = target.get("longitude")
+                    if lat_val is not None and lon_val is not None:
+                        lat = float(lat_val)
+                        lon = float(lon_val)
+                        if not (math.isnan(lat) or math.isnan(lon) or abs(lat) > 90 or abs(lon) > 180):
+                            conf = (case.get("confidencePercent") or 80) / 100.0
+                            weight = min(0.95, max(0.60, round(0.70 + 0.25 * conf, 2)))
+                            raw_points.append({
+                                "latitude": lat,
+                                "longitude": lon,
+                                "weight": weight,
+                                "event_type": "PREDICTED_CASHOUT",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "case_id": c_id,
+                                "terminal_id": target.get("id"),
+                                "city": _get_city_for_point(lat, lon, address=target.get("address")),
+                                "risk_level": "CRITICAL" if weight >= 0.85 else "HIGH",
+                            })
+                except (ValueError, TypeError):
+                    pass
+
+            for near in case.get("nearbyTerminals", []):
+                try:
+                    lat_val = near.get("latitude")
+                    lon_val = near.get("longitude")
+                    if lat_val is not None and lon_val is not None:
+                        lat = float(lat_val)
+                        lon = float(lon_val)
+                        if not (math.isnan(lat) or math.isnan(lon) or abs(lat) > 90 or abs(lon) > 180):
+                            weight = round(min(0.80, max(0.40, (near.get("confidencePercent") or 40) / 100.0)), 2)
+                            raw_points.append({
+                                "latitude": lat,
+                                "longitude": lon,
+                                "weight": weight,
+                                "event_type": "PREDICTED_CASHOUT",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "case_id": c_id,
+                                "terminal_id": near.get("id"),
+                                "city": _get_city_for_point(lat, lon, address=near.get("address")),
+                                "risk_level": near.get("riskLevel", "MEDIUM"),
+                            })
+                except (ValueError, TypeError):
+                    pass
+
+            # 2. Withdrawal Attempts & Blocked Withdrawals
+            for att in case.get("withdrawalAttempts", []):
+                try:
+                    lat_val = att.get("latitude") or (target.get("latitude") if target else None)
+                    lon_val = att.get("longitude") or (target.get("longitude") if target else None)
+                    if lat_val is not None and lon_val is not None:
+                        lat = float(lat_val)
+                        lon = float(lon_val)
+                        if not (math.isnan(lat) or math.isnan(lon) or abs(lat) > 90 or abs(lon) > 180):
+                            status = str(att.get("status", "FLAGGED")).upper()
+                            is_blocked = status in {"BLOCKED", "INTERCEPTED"}
+                            etype = "BLOCKED_WITHDRAWALS" if is_blocked else "WITHDRAWAL_ATTEMPTS"
+                            weight = 0.90 if is_blocked else 0.70
+                            ts = att.get("time") or datetime.now(timezone.utc).isoformat()
+                            raw_points.append({
+                                "latitude": lat,
+                                "longitude": lon,
+                                "weight": weight,
+                                "event_type": etype,
+                                "timestamp": ts,
+                                "case_id": c_id,
+                                "terminal_id": att.get("terminalId"),
+                                "city": _get_city_for_point(lat, lon, address=target.get("address") if target else None),
+                                "risk_level": "CRITICAL" if is_blocked else "HIGH",
+                            })
+                except (ValueError, TypeError):
+                    pass
+
+            # 3. Repeated Terminal Activity
+            rep = case.get("repeatActivity")
+            if rep and rep.get("attempts", 0) >= 2:
+                tid = rep.get("terminalId")
+                term = next((t for t in self.terminals if t.get("terminal_id") == tid), None)
+                if term:
+                    try:
+                        lat_val = term.get("latitude")
+                        lon_val = term.get("longitude")
+                        if lat_val is not None and lon_val is not None:
+                            lat = float(lat_val)
+                            lon = float(lon_val)
+                            if not (math.isnan(lat) or math.isnan(lon) or abs(lat) > 90 or abs(lon) > 180):
+                                mult = float(rep.get("multiplier") or 1.25)
+                                weight = min(1.0, round(0.75 * mult, 2))
+                                raw_points.append({
+                                    "latitude": lat,
+                                    "longitude": lon,
+                                    "weight": weight,
+                                    "event_type": "REPEATED_TERMINAL_ACTIVITY",
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                    "case_id": c_id,
+                                    "terminal_id": tid,
+                                    "city": _get_city_for_point(lat, lon, pincode=term.get("district_pincode")),
+                                    "risk_level": "CRITICAL" if weight >= 0.85 else "HIGH",
+                                })
+                    except (ValueError, TypeError):
+                        pass
+
+            # 4. Confirmed Fraud
+            if case.get("status") in {"BANK_HOLD", "APPROVED"} or case.get("lifecycle") in {"POST_COMPLAINT_ESCALATED", "CASHOUT_ATTEMPT_DETECTED"}:
+                if target:
+                    try:
+                        lat_val = target.get("latitude")
+                        lon_val = target.get("longitude")
+                        if lat_val is not None and lon_val is not None:
+                            lat = float(lat_val)
+                            lon = float(lon_val)
+                            if not (math.isnan(lat) or math.isnan(lon) or abs(lat) > 90 or abs(lon) > 180):
+                                raw_points.append({
+                                    "latitude": lat,
+                                    "longitude": lon,
+                                    "weight": 1.0,
+                                    "event_type": "CONFIRMED_FRAUD",
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                    "case_id": c_id,
+                                    "terminal_id": target.get("id"),
+                                    "city": _get_city_for_point(lat, lon, address=target.get("address")),
+                                    "risk_level": "CRITICAL",
+                                })
+                    except (ValueError, TypeError):
+                        pass
+
+        # 5. Suspicious Terminal Activity from terminal pool
+        if not case_id:
+            for t in self.terminals:
+                tid = t.get("terminal_id")
+                if any(p.get("terminal_id") == tid for p in raw_points):
+                    continue
+                try:
+                    lat_val = t.get("latitude")
+                    lon_val = t.get("longitude")
+                    if lat_val is not None and lon_val is not None:
+                        lat = float(lat_val)
+                        lon = float(lon_val)
+                        if not (lat == 0 and lon == 0) and not (math.isnan(lat) or math.isnan(lon) or abs(lat) > 90 or abs(lon) > 180):
+                            raw_points.append({
+                                "latitude": lat,
+                                "longitude": lon,
+                                "weight": 0.45,
+                                "event_type": "SUSPICIOUS_ACTIVITY",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "case_id": None,
+                                "terminal_id": tid,
+                                "city": _get_city_for_point(lat, lon, pincode=t.get("district_pincode")),
+                                "risk_level": "MEDIUM",
+                            })
+                except (ValueError, TypeError):
+                    pass
+
+        # Filtering phase
+        filtered: List[dict] = []
+        for p in raw_points:
+            lat_v, lon_v = p.get("latitude"), p.get("longitude")
+            if lat_v is None or lon_v is None:
+                continue
+            try:
+                lat_f, lon_f = float(lat_v), float(lon_v)
+                if math.isnan(lat_f) or math.isnan(lon_f) or abs(lat_f) > 90 or abs(lon_f) > 180:
+                    continue
+            except (ValueError, TypeError):
+                continue
+
+            if event_type and event_type.upper() != "ALL":
+                if p["event_type"].upper() != event_type.upper():
+                    continue
+
+            if city:
+                c_target = city.strip().lower()
+                c_actual = p["city"].strip().lower()
+                if c_target not in c_actual and c_actual not in c_target:
+                    continue
+
+            if start_dt or end_dt:
+                ts_str = p.get("timestamp")
+                if ts_str:
+                    try:
+                        p_dt = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+                        if p_dt.tzinfo is None:
+                            p_dt = p_dt.replace(tzinfo=timezone.utc)
+                        else:
+                            p_dt = p_dt.astimezone(timezone.utc)
+
+                        if start_dt and p_dt < start_dt:
+                            continue
+                        if end_dt and p_dt > end_dt:
+                            continue
+                    except Exception:
+                        pass
+
+            filtered.append(p)
+
+        # Aggregation phase
+        final_points = filtered
+        if aggregate and filtered:
+            clusters: Dict[tuple, List[dict]] = {}
+            for p in filtered:
+                key = (round(p["latitude"], 3), round(p["longitude"], 3))
+                clusters.setdefault(key, []).append(p)
+
+            aggregated: List[dict] = []
+            priority_map = {
+                "CONFIRMED_FRAUD": 6,
+                "BLOCKED_WITHDRAWALS": 5,
+                "REPEATED_TERMINAL_ACTIVITY": 4,
+                "PREDICTED_CASHOUT": 3,
+                "WITHDRAWAL_ATTEMPTS": 2,
+                "SUSPICIOUS_ACTIVITY": 1,
+            }
+
+            for (grid_lat, grid_lon), group in clusters.items():
+                max_w = max(g["weight"] for g in group)
+                count = len(group)
+                agg_w = min(1.0, round(max_w + 0.15 * (count - 1), 2))
+                best_p = max(group, key=lambda x: (priority_map.get(x["event_type"], 0), x["weight"]))
+
+                aggregated.append({
+                    "latitude": best_p["latitude"],
+                    "longitude": best_p["longitude"],
+                    "weight": agg_w,
+                    "event_type": best_p["event_type"],
+                    "timestamp": best_p["timestamp"],
+                    "case_id": best_p["case_id"],
+                    "terminal_id": best_p["terminal_id"],
+                    "city": best_p["city"],
+                    "risk_level": "CRITICAL" if agg_w >= 0.85 else ("HIGH" if agg_w >= 0.65 else "MEDIUM"),
+                })
+            final_points = aggregated
+
+        event_counts: Dict[str, int] = {}
+        cities_set = set()
+        for p in final_points:
+            event_counts[p["event_type"]] = event_counts.get(p["event_type"], 0) + 1
+            cities_set.add(p["city"])
+
+        return {
+            "points": final_points,
+            "summary": {
+                "total_points": len(final_points),
+                "event_counts": event_counts,
+                "cities_represented": sorted(list(cities_set)),
+            }
+        }
+

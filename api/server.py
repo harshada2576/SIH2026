@@ -84,6 +84,46 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, case)
             return
+        if len(parts) == 3 and parts[0] == "cases" and parts[2] == "heatmap":
+            case_id = parts[1]
+            case = ENGINE.get(case_id)
+            if not case:
+                self._send(404, {"error": "case not found"})
+                return
+            event_type = (q.get("event_type") or [None])[0]
+            city = (q.get("city") or [None])[0]
+            start_time = (q.get("start_time") or [None])[0]
+            end_time = (q.get("end_time") or [None])[0]
+            aggregate_str = (q.get("aggregate") or ["true"])[0]
+            aggregate = (aggregate_str.lower() != "false")
+            data = ENGINE.get_heatmap_points(
+                case_id=case_id,
+                event_type=event_type,
+                city=city,
+                start_time=start_time,
+                end_time=end_time,
+                aggregate=aggregate,
+            )
+            self._send(200, data)
+            return
+        if parts == ["heatmap"]:
+            event_type = (q.get("event_type") or [None])[0]
+            city = (q.get("city") or [None])[0]
+            start_time = (q.get("start_time") or [None])[0]
+            end_time = (q.get("end_time") or [None])[0]
+            case_id = (q.get("case_id") or [None])[0]
+            aggregate_str = (q.get("aggregate") or ["true"])[0]
+            aggregate = (aggregate_str.lower() != "false")
+            data = ENGINE.get_heatmap_points(
+                case_id=case_id,
+                event_type=event_type,
+                city=city,
+                start_time=start_time,
+                end_time=end_time,
+                aggregate=aggregate,
+            )
+            self._send(200, data)
+            return
         if parts == ["terminals"]:
             self._send(200, {"terminals": ENGINE.terminal_markers()})
             return

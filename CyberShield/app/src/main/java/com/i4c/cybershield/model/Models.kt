@@ -51,6 +51,19 @@ data class TerminalMarker(
     val distanceKm: Double? = null
 )
 
+/** Geographic Heatmap Point representing heat intensity for geographic activity */
+data class HeatmapPoint(
+    val latitude: Double,
+    val longitude: Double,
+    val weight: Double,
+    val eventType: String,
+    val timestamp: String,
+    val caseId: String? = null,
+    val terminalId: String? = null,
+    val city: String = "India",
+    val riskLevel: String = "HIGH"
+)
+
 /** Node in the money-laundering trail graph */
 data class TrailNode(
     val label: String,
