@@ -296,7 +296,7 @@ private fun NetworkConfigDialog(
             if (manualIp.isNotBlank()) {
                 Button(
                     onClick = {
-                        val portInt = manualPort.toIntOrNull() ?: 8080
+                        val portInt = manualPort.toIntOrNull() ?: 5003
                         onSaveManual(manualIp.trim(), portInt)
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MediumCyan, contentColor = BgDeepSlate)

@@ -30,21 +30,26 @@ from pipeline.consumer import load_reference_data, process_transaction
 from detection import scorer, alert_dispatcher
 from detection.rules import identity_cluster_rule
 
-DB_PATH = DEFAULT_DB_PATH
+DB_PATH = REPO_ROOT / "data" / "output" / "cybershield_e2e_test.db"
 ACCOUNTS_CSV = REPO_ROOT / "data-generator" / "data" / "accounts.csv"
 TERMINALS_CSV = REPO_ROOT / "data-generator" / "data" / "terminals.csv"
 TRANSACTIONS_CSV = REPO_ROOT / "data-generator" / "data" / "transactions.csv"
 
 
+def _cleanup_test_db(db_file: Path) -> None:
+    for suffix in ["", "-wal", "-shm"]:
+        p = Path(str(db_file) + suffix)
+        if p.exists():
+            try:
+                p.unlink()
+            except Exception:
+                pass
+
+
 def verify_e2e():
     print("=== STARTING END-TO-END REPLAY VERIFICATION ===")
 
-    if DB_PATH.exists():
-        try:
-            os.remove(DB_PATH)
-        except Exception:
-            pass
-
+    _cleanup_test_db(DB_PATH)
     db_store = Store(db_path=DB_PATH)
     graph = GraphStore()
 
@@ -130,7 +135,7 @@ def verify_e2e():
             flagged_accounts.add(acc)
             alert = scorer.analyze(graph, acc, notify_threshold=30, as_of=max_ts)
             if alert:
-                alert_dispatcher.dispatch(alert, band=ev.band)
+                alert_dispatcher.dispatch(alert, band=ev.band, store=db_store)
 
     print(f"  [OK] Evaluated detection rules across accounts. Flagged accounts: {len(flagged_accounts)}")
 
@@ -151,11 +156,7 @@ def verify_e2e():
     print(f"  [OK] SQLite interventions table: {int_count} records verified.")
 
     db_store.close()
-    if DB_PATH.exists():
-        try:
-            os.remove(DB_PATH)
-        except Exception:
-            pass
+    _cleanup_test_db(DB_PATH)
 
     print("\n=== E2E REPLAY VERIFICATION COMPLETE — ALL CHECKS PASSED ===")
 

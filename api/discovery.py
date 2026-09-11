@@ -61,7 +61,7 @@ def get_primary_lan_ip() -> str:
 class DiscoveryService:
     """Manages local mDNS and UDP broadcast discovery announcements for the CyberShield server."""
 
-    def __init__(self, port: int = 8080, service_name: str = "CyberShield-Backend") -> None:
+    def __init__(self, port: int = 5003, service_name: str = "CyberShield-Backend") -> None:
         self.port = port
         self.service_name = service_name
         self.zeroconf: Optional[Zeroconf] = None

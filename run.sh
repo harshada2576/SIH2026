@@ -53,7 +53,7 @@ print_help() {
     echo ""
     echo "Commands:"
     echo "  app             Build, install, and launch the CyberShield Android App on connected phone (Default)"
-    echo "  server          Start complete backend stack (Mock APIs + FastAPI + mDNS/UDP Discovery on 0.0.0.0:8080)"
+    echo "  server          Start complete backend stack (Mock APIs + FastAPI + mDNS/UDP Discovery on 0.0.0.0:5003)"
     echo "  backend         Alias for 'server'"
     echo "  demo            Run full E2E demo scenario in terminal and dispatch live alert to phones"
     echo "  pipeline        Start local Kafka (Docker), pipeline consumer, and detection scorer"

@@ -24,7 +24,7 @@ def test_lan_ip_detection():
 
 
 def test_discovery_service_lifecycle():
-    service = DiscoveryService(port=8080, service_name="CyberShield-Test")
+    service = DiscoveryService(port=5003, service_name="CyberShield-Test")
     service.start()
     assert service.running is True
 
@@ -37,7 +37,7 @@ def test_discovery_service_lifecycle():
     assert "CYBERSHIELD_BACKEND:" in text
     payload = json.loads(text.replace("CYBERSHIELD_BACKEND:", "").strip())
     assert payload["service"] == "cybershield"
-    assert payload["port"] == 8080
+    assert payload["port"] == 5003
     sock.close()
 
     service.stop()

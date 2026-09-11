@@ -287,8 +287,19 @@ class Store:
     def __init__(self, db_path: Optional[Path] = None) -> None:
         self.db_path = Path(db_path or DEFAULT_DB_PATH)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL;")
+        try:
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn.execute("PRAGMA journal_mode=WAL;")
+        except sqlite3.OperationalError:
+            for suffix in ["-wal", "-shm"]:
+                aux = Path(str(self.db_path) + suffix)
+                if aux.exists():
+                    try:
+                        aux.unlink()
+                    except Exception:
+                        pass
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA synchronous=NORMAL;")
         self._conn.executescript(SCHEMA)
 

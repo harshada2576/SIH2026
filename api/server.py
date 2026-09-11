@@ -116,7 +116,7 @@ def sync_broadcast(event_type: str, data: Any) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global discovery_service
-    port = getattr(app.state, "port", 8080)
+    port = getattr(app.state, "port", 5003)
     lan_ip = get_primary_lan_ip()
     log.info(f"==================================================================")
     log.info(f"🛡️  CyberShield SIH26184 Detection & Live Dispatch API")

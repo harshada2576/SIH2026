@@ -30,7 +30,7 @@ Synthetic / Live Transactions
     │                                                             │
     ▼                                                             ▼
 Notification Subsystem (Sprint 4)                   FastAPI Backend API (`api/server.py`)
-(SMS & Email to Bank/Security/Investigation)        (LAN Sync on 0.0.0.0:8080)
+(SMS & Email to Bank/Security/Investigation)        (LAN Sync on 0.0.0.0:5003)
     │                                                             │
     └─────────────────────────────┬───────────────────────────────┘
                                   ▼
@@ -87,7 +87,7 @@ Notification Subsystem (Sprint 4)                   FastAPI Backend API (`api/se
   - Case Detail Screen with XAI evidence, money trail diagrams, action decisions ("Send to Police", "Freeze Account", "Dismiss"), and authoritative `NotificationDeliveryCard` delivery status.
   - Interactive Radar Map (MapLibre OSM) with spatial clustering and terminal markers.
   - Activity screen displaying tamper-evident audit ledger entries.
-* **FastAPI Backend Service (`api/server.py`):** Lightweight JSON REST API running on `0.0.0.0:8080` for local LAN access by Android physical devices and emulators:
+* **FastAPI Backend Service (`api/server.py`):** Lightweight JSON REST API running on `0.0.0.0:5003` for local LAN access by Android physical devices and emulators:
   - `GET /cases`: Retrieve active cases with investigation state.
   - `GET /cases/{case_id}/notifications`: Retrieve authoritative notification delivery items.
   - `POST /cases/{case_id}/notify`: Trigger manual or programmatic notifications.
@@ -117,8 +117,8 @@ python -m scripts.demo_notification_system
 
 ### C. Start Backend API Server for CyberShield Android
 ```bash
-# Start FastAPI backend (LAN accessible on port 8080)
-python -m uvicorn api.server:app --host 0.0.0.0 --port 8080
+# Start FastAPI backend (LAN accessible on port 5003)
+python -m uvicorn api.server:app --host 0.0.0.0 --port 5003
 ```
 
 ### D. Run Full Live Streaming Pipeline
