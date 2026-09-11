@@ -2,26 +2,37 @@ package com.i4c.cybershield.ui.navigation
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.i4c.cybershield.MainViewModel
 import com.i4c.cybershield.ui.auth.AuthScreen
+import com.i4c.cybershield.ui.investigation.CaseDetailScreen
 import com.i4c.cybershield.ui.screens.MainScreen
+import com.i4c.cybershield.ui.theme.BorderTaupe
 
 // ═══════════════════════════════════════════════════════════════════════
 //  NAVIGATION GRAPH
-//  Two top-level destinations:
-//    • "auth"      → Auth & Registration
-//    • "main"      → 3-Tab Scaffold (Radar / Investigation / Dispatch)
+//  Three top-level destinations:
+//    • "auth"                  → Auth & Registration
+//    • "main"                  → 3-Tab Scaffold (Map / Cases / Activity)
+//    • "case_detail/{ncrpId}"  → Full inspection of ONE specific case
 // ═══════════════════════════════════════════════════════════════════════
 
 object Routes {
     const val AUTH = "auth"
     const val MAIN = "main"
+    const val CASE_DETAIL = "case_detail/{ncrpId}"
+    fun caseDetail(ncrpId: String) = "case_detail/$ncrpId"
 }
 
 @Composable
@@ -56,6 +67,8 @@ fun CyberShieldNavGraph(
             AuthScreen(
                 email = viewModel.email,
                 emailError = viewModel.emailError,
+                password = viewModel.password,
+                passwordError = viewModel.passwordError,
                 otpInput = viewModel.otpInput,
                 otpError = viewModel.otpError,
                 otpRequested = viewModel.otpRequested,
@@ -64,12 +77,14 @@ fun CyberShieldNavGraph(
                 lockoutTimeRemaining = viewModel.lockoutTimeRemaining,
                 otpCountdownSeconds = viewModel.otpCountdownSeconds,
                 canResendOtp = viewModel.canResendOtp,
+                selectedRole = viewModel.userRole,
                 onEmailChanged = viewModel::onEmailChanged,
+                onPasswordChanged = viewModel::onPasswordChanged,
+                onRoleSelected = viewModel::selectRole,
                 onOtpChanged = viewModel::onOtpChanged,
                 onRequestOtp = viewModel::requestOtp,
                 onVerifyOtp = {
                     viewModel.verifyOtp()
-                    // Navigate to main on successful auth
                     if (viewModel.isAuthenticated) {
                         navController.navigate(Routes.MAIN) {
                             popUpTo(Routes.AUTH) { inclusive = true }
@@ -82,7 +97,55 @@ fun CyberShieldNavGraph(
 
         // ─── Main 3-Tab Scaffold ───────────────────────────────────
         composable(Routes.MAIN) {
-            MainScreen(viewModel = viewModel)
+            MainScreen(
+                viewModel = viewModel,
+                onOpenCase = { ncrpId -> navController.navigate(Routes.caseDetail(ncrpId)) }
+            )
+        }
+
+        // ─── Case Detail (always the case that was actually tapped) ─
+        composable(
+            route = Routes.CASE_DETAIL,
+            arguments = listOf(navArgument("ncrpId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val ncrpId = backStackEntry.arguments?.getString("ncrpId").orEmpty()
+            val case = viewModel.caseById(ncrpId)
+
+            if (case == null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Case $ncrpId not found.", color = BorderTaupe)
+                }
+            } else {
+                CaseDetailScreen(
+                    case = case,
+                    userRole = viewModel.userRole,
+                    showApproveDialog = viewModel.showApproveDialog,
+                    showBankHoldDialog = viewModel.showBankHoldDialog,
+                    onBack = { navController.popBackStack() },
+                    onApproveClick = viewModel::showApproveConfirmation,
+                    onApproveConfirm = {
+                        viewModel.approveAndForward(ncrpId)
+                        navController.popBackStack()
+                    },
+                    onApproveDismiss = viewModel::dismissApproveDialog,
+                    onBankHoldClick = viewModel::showBankHoldConfirmation,
+                    onBankHoldConfirm = {
+                        viewModel.issueBankHold(ncrpId)
+                        navController.popBackStack()
+                    },
+                    onBankHoldDismiss = viewModel::dismissBankHoldDialog,
+                    onDismissFalsePositive = {
+                        viewModel.dismissFalsePositive(ncrpId)
+                        navController.popBackStack()
+                    },
+                    onReleaseAfterConfirmation = {
+                        viewModel.releaseAfterCustomerConfirmation(ncrpId)
+                        navController.popBackStack()
+                    },
+                    onFileComplaint = { viewModel.fileComplaint(ncrpId) },
+                    onSimulateWithdraw = { viewModel.simulateWithdraw(ncrpId) }
+                )
+            }
         }
     }
 }

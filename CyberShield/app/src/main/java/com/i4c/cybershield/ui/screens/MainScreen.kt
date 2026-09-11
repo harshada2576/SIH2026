@@ -3,7 +3,6 @@ package com.i4c.cybershield.ui.screens
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -18,21 +17,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.i4c.cybershield.MainViewModel
-import com.i4c.cybershield.data.MockDataRepository
-import com.i4c.cybershield.ui.dispatch.DispatchScreen
-import com.i4c.cybershield.ui.investigation.InvestigationScreen
+import com.i4c.cybershield.model.UserRole
+import com.i4c.cybershield.ui.activity.ActivityScreen
+import com.i4c.cybershield.ui.cases.CasesScreen
 import com.i4c.cybershield.ui.radar.RadarMapScreen
 import com.i4c.cybershield.ui.theme.*
 
 // ═══════════════════════════════════════════════════════════════════════
-//  MAIN SCREEN – 3-Tab Scaffold with Custom Bottom Navigation
+//  MAIN SCREEN – 3-Tab Scaffold (Map / Cases / Activity)
+//
+//  Cases is the default landing tab: it's the investigator's actual work
+//  queue. Tapping any case (here, or a marker on the Map) opens that
+//  SPECIFIC case's detail screen via onOpenCase — never a fixed example.
 // ═══════════════════════════════════════════════════════════════════════
 
 data class TabItem(
@@ -43,15 +44,16 @@ data class TabItem(
 )
 
 val bottomTabs = listOf(
-    TabItem(0, "CASHOUT RADAR", Icons.Filled.Map, Icons.Outlined.Map),
-    TabItem(1, "INVESTIGATION", Icons.Filled.Biotech, Icons.Outlined.Biotech),
-    TabItem(2, "DISPATCH CENTER", Icons.Filled.Assignment, Icons.Outlined.Assignment)
+    TabItem(0, "MAP", Icons.Filled.Map, Icons.Outlined.Map),
+    TabItem(1, "CASES", Icons.Filled.FactCheck, Icons.Outlined.FactCheck),
+    TabItem(2, "ACTIVITY", Icons.Filled.History, Icons.Outlined.History)
 )
 
 @Composable
-fun MainScreen(viewModel: MainViewModel) {
-    val primaryComplaint = MockDataRepository.complaintTickets.first()
-
+fun MainScreen(
+    viewModel: MainViewModel,
+    onOpenCase: (String) -> Unit
+) {
     Scaffold(
         containerColor = BgDeepSlate,
         bottomBar = {
@@ -61,7 +63,6 @@ fun MainScreen(viewModel: MainViewModel) {
             )
         },
         snackbarHost = {
-            // Toast replacement
             AnimatedVisibility(
                 visible = viewModel.toastMessage != null,
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -73,29 +74,15 @@ fun MainScreen(viewModel: MainViewModel) {
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = SuccessGreen.copy(alpha = 0.95f)
-                        )
+                        colors = CardDefaults.cardColors(containerColor = SuccessGreen.copy(alpha = 0.95f))
                     ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
+                            modifier = Modifier.fillMaxWidth().padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = TextOffWhite,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = message,
-                                color = TextOffWhite,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TextOffWhite, modifier = Modifier.size(20.dp))
+                            Text(text = message, color = TextOffWhite, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -106,40 +93,29 @@ fun MainScreen(viewModel: MainViewModel) {
             when (viewModel.currentTab) {
                 0 -> RadarMapScreen(
                     terminals = viewModel.filteredTerminals,
+                    searchQuery = viewModel.terminalSearch,
                     activeFilter = viewModel.activeFilter,
                     selectedTerminal = viewModel.selectedTerminal,
                     onFilterChanged = viewModel::setFilter,
+                    onSearchChanged = viewModel::onTerminalSearchChanged,
                     onTerminalSelected = viewModel::selectTerminal,
                     onTerminalDismissed = { viewModel.selectTerminal(null) },
-                    onNavigateToInvestigation = viewModel::navigateToInvestigation
-                )
-
-                1 -> InvestigationScreen(
-                    complaint = primaryComplaint,
-                    moneyTrail = MockDataRepository.primaryMoneyTrail,
-                    riskBreakdown = MockDataRepository.primaryRiskBreakdown,
-                    investigationCase = viewModel.currentInvestigationCase,
-                    investigationStatus = viewModel.investigationStatus,
-                    showApproveDialog = viewModel.showApproveDialog,
-                    showBankHoldDialog = viewModel.showBankHoldDialog,
-                    onApproveClick = viewModel::showApproveConfirmation,
-                    onApproveConfirm = viewModel::approveAndForward,
-                    onApproveDismiss = viewModel::dismissApproveDialog,
-                    onBankHoldClick = viewModel::showBankHoldConfirmation,
-                    onBankHoldConfirm = viewModel::issueBankHold,
-                    onBankHoldDismiss = viewModel::dismissBankHoldDialog,
-                    onDismissFalsePositive = viewModel::dismissFalsePositive
-                )
-
-                2 -> DispatchScreen(
-                    summaries = MockDataRepository.dispatchSummaries,
-                    pendingReviews = MockDataRepository.pendingReviewItems,
-                    auditLog = viewModel.auditLog,
-                    onInspectApprove = { ncrpId ->
-                        val matchingCaseId = if (ncrpId == "NCRP-2026-994821") "CASE-NCRP-994821" else "CASE-ALERT-1732"
-                        viewModel.selectCase(matchingCaseId)
+                    onInspectTerminal = { terminal ->
+                        viewModel.selectTerminal(null)
+                        viewModel.caseForTerminal(terminal.id)?.let { onOpenCase(it.ncrpId) }
                     }
                 )
+
+                1 -> CasesScreen(
+                    allCases = viewModel.cases,
+                    summaries = viewModel.queueSummaries,
+                    userRole = viewModel.userRole,
+                    backendMessage = viewModel.backendMessage,
+                    backendOnline = viewModel.backendOnline,
+                    onCaseSelected = onOpenCase
+                )
+
+                2 -> ActivityScreen(auditLog = viewModel.auditLog)
             }
         }
     }
@@ -192,7 +168,6 @@ private fun CyberShieldBottomBar(
                             modifier = Modifier.size(24.dp)
                         )
 
-                        // Active indicator dot
                         if (isSelected) {
                             Box(
                                 modifier = Modifier

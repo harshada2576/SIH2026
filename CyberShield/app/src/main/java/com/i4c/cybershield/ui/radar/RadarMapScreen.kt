@@ -59,17 +59,49 @@ import com.i4c.cybershield.ui.theme.*
 @Composable
 fun RadarMapScreen(
     terminals: List<TerminalMarker>,
+    searchQuery: String,
     activeFilter: String,
     selectedTerminal: TerminalMarker?,
     onFilterChanged: (String) -> Unit,
+    onSearchChanged: (String) -> Unit,
     onTerminalSelected: (TerminalMarker) -> Unit,
     onTerminalDismissed: () -> Unit,
-    onNavigateToInvestigation: () -> Unit
+    onInspectTerminal: (TerminalMarker) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val terminalsRef = remember { mutableStateOf(terminals) }
+    terminalsRef.value = terminals
+    var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val searchMatches = remember(searchQuery, terminals) {
+        val q = searchQuery.trim().lowercase()
+        if (q.length < 2) emptyList()
+        else terminals.filter {
+            it.id.lowercase().contains(q) ||
+            it.address.lowercase().contains(q) ||
+            it.bankName.lowercase().contains(q)
+        }
+    }
+
+    val flyToTerminal: (TerminalMarker) -> Unit = { target ->
+        mapLibreMap?.cameraPosition = CameraPosition.Builder()
+            .target(LatLng(target.latitude, target.longitude))
+            .zoom(16.0)
+            .build()
+        onTerminalSelected(target)
+    }
+
+    LaunchedEffect(searchQuery, terminals) {
+        val query = searchQuery.trim()
+        if (query.length < 2) return@LaunchedEffect
+        val exact = terminals.firstOrNull { it.id.equals(query, ignoreCase = true) }
+        if (exact != null) {
+            flyToTerminal(exact)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -77,7 +109,15 @@ fun RadarMapScreen(
             .background(BgDeepSlate)
     ) {
         // ─── Top Bar ───────────────────────────────────────────────
-        RadarTopBar(activeFilter, onFilterChanged)
+        RadarTopBar(
+            searchQuery = searchQuery,
+            activeFilter = activeFilter,
+            onFilterChanged = onFilterChanged,
+            onSearchChanged = onSearchChanged,
+            terminalCount = terminals.size,
+            searchMatches = searchMatches,
+            onSelectMatch = flyToTerminal
+        )
 
         // ─── Map ───────────────────────────────────────────────────
         Box(
@@ -91,10 +131,11 @@ fun RadarMapScreen(
                     onCreate(null)
                     onStart()
                     onResume()
-                    getMapAsync { mapLibreMap ->
-                        mapLibreMap.uiSettings.isZoomGesturesEnabled = true
-                        mapLibreMap.uiSettings.isCompassEnabled = true
-                        mapLibreMap.cameraPosition = CameraPosition.Builder()
+                    getMapAsync { map ->
+                        mapLibreMap = map
+                        map.uiSettings.isZoomGesturesEnabled = true
+                        map.uiSettings.isCompassEnabled = true
+                        map.cameraPosition = CameraPosition.Builder()
                             .target(LatLng(28.5708, 77.3261))
                             .zoom(14.0)
                             .build()
@@ -128,16 +169,16 @@ fun RadarMapScreen(
                         }
                         """.trimIndent()
 
-                        mapLibreMap.setStyle(org.maplibre.android.maps.Style.Builder().fromJson(styleJson)) { style ->
+                        map.setStyle(org.maplibre.android.maps.Style.Builder().fromJson(styleJson)) { _ ->
                             // Layers will be added in update block
                         }
 
-                        mapLibreMap.addOnMapClickListener { point ->
-                            val screenPoint = mapLibreMap.projection.toScreenLocation(point)
-                            val features = mapLibreMap.queryRenderedFeatures(screenPoint, "markers-layer")
+                        map.addOnMapClickListener { point ->
+                            val screenPoint = map.projection.toScreenLocation(point)
+                            val features = map.queryRenderedFeatures(screenPoint, "markers-layer")
                             if (features.isNotEmpty()) {
                                 val id = features[0].getStringProperty("id")
-                                val terminal = terminals.find { it.id == id }
+                                val terminal = terminalsRef.value.find { it.id == id }
                                 if (terminal != null) {
                                     onTerminalSelected(terminal)
                                     return@addOnMapClickListener true
@@ -264,7 +305,7 @@ fun RadarMapScreen(
         ) {
             TerminalDetailSheet(
                 terminal = selectedTerminal,
-                onInspect = onNavigateToInvestigation,
+                onInspect = { onInspectTerminal(selectedTerminal) },
                 onDismiss = onTerminalDismissed
             )
         }
@@ -275,7 +316,15 @@ fun RadarMapScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RadarTopBar(activeFilter: String, onFilterChanged: (String) -> Unit) {
+private fun RadarTopBar(
+    searchQuery: String,
+    activeFilter: String,
+    onFilterChanged: (String) -> Unit,
+    onSearchChanged: (String) -> Unit,
+    terminalCount: Int,
+    searchMatches: List<TerminalMarker> = emptyList(),
+    onSelectMatch: (TerminalMarker) -> Unit = {}
+) {
     // Live pulse animation
     val infiniteTransition = rememberInfiniteTransition(label = "live_pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -309,7 +358,7 @@ private fun RadarTopBar(activeFilter: String, onFilterChanged: (String) -> Unit)
         ) {
             // Title
             Text(
-                text = "Cashout Radar",
+                text = "Cash-Out Map",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextOffWhite
@@ -358,13 +407,62 @@ private fun RadarTopBar(activeFilter: String, onFilterChanged: (String) -> Unit)
 
             // Terminal count
             Text(
-                text = "8 Terminals",
+                text = "$terminalCount Locations",
                 fontSize = 12.sp,
                 color = BorderTaupe
             )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchChanged,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+                if (searchQuery.isNotBlank()) {
+                    IconButton(onClick = { onSearchChanged("") }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                    }
+                }
+            },
+            placeholder = { Text("Search ATM ID, bank or location") },
+            label = { Text("Find a terminal") },
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = AlertOrange,
+                unfocusedBorderColor = BorderTaupe.copy(alpha = 0.4f),
+                focusedTextColor = TextOffWhite,
+                unfocusedTextColor = TextOffWhite,
+                cursorColor = AlertOrange,
+                focusedLabelColor = AlertOrange
+            )
+        )
+
+        if (searchMatches.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(searchMatches.take(6)) { match ->
+                    SuggestionChip(
+                        onClick = { onSelectMatch(match) },
+                        label = { Text("${match.id} • ${match.bankName}", fontSize = 11.sp) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = SurfaceCharcoal,
+                            labelColor = AlertOrange
+                        ),
+                        border = SuggestionChipDefaults.suggestionChipBorder(
+                            borderColor = AlertOrange.copy(alpha = 0.5f)
+                        )
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Filter Chips
         val filters = listOf("All Terminals", "Bank ATMs", "AEPS Micro-ATMs")
@@ -616,7 +714,7 @@ private fun TerminalDetailSheet(
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "Inspect Evidence for Review",
+                text = "Review the Linked Case",
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp
             )

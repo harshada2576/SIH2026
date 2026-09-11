@@ -1,25 +1,40 @@
 package com.i4c.cybershield
 
+import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.i4c.cybershield.data.CyberShieldApi
 import com.i4c.cybershield.data.MockDataRepository
 import com.i4c.cybershield.model.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // ═══════════════════════════════════════════════════════════════════════
 //  MAIN VIEW MODEL
-//  Single source of truth for authentication state, navigation,
-//  investigation actions, and dispatch audit log.
+//  Single source of truth for authentication state, the live case queue,
+//  the case currently being reviewed, and the audit trail.
+//
+//  Every case tracks its OWN status (cases is a live list, not one shared
+//  field) so approving/freezing/dismissing one case never affects another,
+//  and re-opening any case from the queue always shows that case's own
+//  evidence — this is the fix for the single-hardcoded-case bug.
 // ═══════════════════════════════════════════════════════════════════════
 
-class MainViewModel : ViewModel() {
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val api = CyberShieldApi(application)
+    var backendOnline by mutableStateOf(false)
+        private set
+    var backendMessage by mutableStateOf("Connecting to detection API…")
+        private set
 
     // ─── Authentication State ──────────────────────────────────────────
     var email by mutableStateOf("")
@@ -46,52 +61,148 @@ class MainViewModel : ViewModel() {
         private set
     var canResendOtp by mutableStateOf(false)
         private set
+    var officerName by mutableStateOf("Officer")
+        private set
+    var userRole by mutableStateOf(UserRole.BANK_OFFICIAL)
+        private set
+    var password by mutableStateOf("")
+        private set
+    var passwordError by mutableStateOf<String?>(null)
+        private set
     private var countdownJob: Job? = null
 
-    // ─── Navigation State ──────────────────────────────────────────────
-    var currentTab by mutableIntStateOf(0)
+    // ─── Bottom-tab navigation state (Map / Cases / Activity) ──────────
+    var currentTab by mutableIntStateOf(1) // land on "Cases" — the actual work queue
         private set
 
     // ─── Radar Map State ───────────────────────────────────────────────
     var activeFilter by mutableStateOf("All Terminals")
         private set
+    var terminalSearch by mutableStateOf("")
+        private set
     var selectedTerminal by mutableStateOf<TerminalMarker?>(null)
         private set
 
     val filteredTerminals: List<TerminalMarker>
-        get() = when (activeFilter) {
-            "Bank ATMs" -> MockDataRepository.terminalMarkers.filter { it.type == TerminalType.BANK_ATM }
-            "AEPS Micro-ATMs" -> MockDataRepository.terminalMarkers.filter { it.type == TerminalType.AEPS_MICRO_ATM }
-            else -> MockDataRepository.terminalMarkers
+        get() {
+            val byType = when (activeFilter) {
+            "Bank ATMs" -> liveTerminals.filter { it.type == TerminalType.BANK_ATM }
+            "AEPS Micro-ATMs" -> liveTerminals.filter { it.type == TerminalType.AEPS_MICRO_ATM }
+            else -> liveTerminals
+            }
+            val query = terminalSearch.trim().lowercase()
+            return if (query.isBlank()) byType else byType.filter {
+                it.id.lowercase().contains(query) || it.address.lowercase().contains(query) ||
+                    it.bankName.lowercase().contains(query)
+            }
         }
 
-    // ─── Investigation State ───────────────────────────────────────────
-    var selectedCaseId by mutableStateOf("CASE-ALERT-1732")
+    var liveTerminals = mutableStateListOf<TerminalMarker>().apply {
+        addAll(MockDataRepository.terminalMarkers)
+    }
         private set
 
-    val currentInvestigationCase: InvestigationCase
-        get() = MockDataRepository.getCaseById(selectedCaseId)
-
-    var investigationStatus by mutableStateOf(ActionStatus.PENDING)
+    // ─── Case Queue (live, mutable — this is the source of truth) ──────
+    var cases = mutableStateListOf<ComplaintTicket>().apply {
+        addAll(MockDataRepository.cases)
+    }
         private set
+
+    /** All cases still awaiting a decision, most recent first. */
+    val pendingCases: List<ComplaintTicket>
+        get() = cases.filter { it.status == ActionStatus.PENDING }
+
+    /** Everything already actioned (approved / frozen / dismissed). */
+    val resolvedCases: List<ComplaintTicket>
+        get() = cases.filterNot { it.status == ActionStatus.PENDING }
+
+    val queueSummaries: List<DispatchSummary>
+        get() = if (userRole == UserRole.POLICE_INVESTIGATOR) {
+            listOf(
+                DispatchSummary("Forwarded to you", cases.count { it.status == ActionStatus.APPROVED || it.status == ActionStatus.EN_ROUTE }, com.i4c.cybershield.ui.theme.AlertOrange),
+                DispatchSummary("Accounts Frozen", cases.count { it.status == ActionStatus.BANK_HOLD }, com.i4c.cybershield.ui.theme.MediumCyan),
+                DispatchSummary("Closed", cases.count { it.status == ActionStatus.DISMISSED || it.status == ActionStatus.RELEASED }, com.i4c.cybershield.ui.theme.SuccessGreen)
+            )
+        } else {
+            listOf(
+                DispatchSummary("Awaiting Review", pendingCases.size, com.i4c.cybershield.ui.theme.AlertOrange),
+                DispatchSummary("Sent to Police", cases.count { it.status == ActionStatus.APPROVED }, com.i4c.cybershield.ui.theme.SuccessGreen),
+                DispatchSummary("Accounts Frozen", cases.count { it.status == ActionStatus.BANK_HOLD }, com.i4c.cybershield.ui.theme.MediumCyan)
+            )
+        }
+
+    /** Look up a case by its NCRP id — used by the case-detail screen and deep links. */
+    fun caseById(ncrpId: String): ComplaintTicket? = cases.find { it.ncrpId == ncrpId }
+
+    /** Look up which case (if any) targets a given predicted terminal — used by the map. */
+    fun caseForTerminal(terminalId: String): ComplaintTicket? =
+        cases.find { it.targetTerminal.id == terminalId }
+
+    // ─── Case Detail dialogs ────────────────────────────────────────────
     var showApproveDialog by mutableStateOf(false)
         private set
     var showBankHoldDialog by mutableStateOf(false)
         private set
 
-    fun selectCase(caseId: String) {
-        selectedCaseId = caseId
-        currentTab = 1
+    // ─── Audit / Activity log ───────────────────────────────────────────
+    var auditLog = mutableStateListOf<AuditLogEntry>().apply {
+        addAll(MockDataRepository.auditLogEntries)
     }
-
-    // ─── Dispatch / Audit State ────────────────────────────────────────
-    var auditLog = mutableStateListOf<AuditLogEntry>()
         private set
     var toastMessage by mutableStateOf<String?>(null)
         private set
 
     init {
-        auditLog.addAll(MockDataRepository.auditLogEntries)
+        startLiveFeed()
+    }
+
+    private fun startLiveFeed() {
+        viewModelScope.launch {
+            while (true) {
+                refreshFromBackend()
+                delay(6000)
+            }
+        }
+    }
+
+    fun refreshFromBackend() {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val loaded = api.fetchCases(userRole)
+                    val terms = api.fetchTerminals()
+                    val log = api.fetchAudit()
+                    Triple(loaded, terms, log)
+                }
+            }.onSuccess { (loaded, terms, log) ->
+                backendOnline = true
+                backendMessage = "Live: ${loaded.size} cases from detection engine"
+                if (loaded.isNotEmpty()) {
+                    cases.clear()
+                    cases.addAll(loaded)
+                }
+                if (terms.isNotEmpty()) {
+                    liveTerminals.clear()
+                    liveTerminals.addAll(terms)
+                }
+                if (log.isNotEmpty()) {
+                    auditLog.clear()
+                    auditLog.addAll(log)
+                }
+            }.onFailure {
+                backendOnline = false
+                backendMessage = "Offline Mode • Ready with 5 Active Defense Cases"
+                if (cases.isEmpty()) {
+                    cases.addAll(MockDataRepository.cases)
+                }
+                if (liveTerminals.isEmpty()) {
+                    liveTerminals.addAll(MockDataRepository.terminalMarkers)
+                }
+                if (auditLog.isEmpty()) {
+                    auditLog.addAll(MockDataRepository.auditLogEntries)
+                }
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -103,8 +214,17 @@ class MainViewModel : ViewModel() {
         emailError = null
     }
 
+    fun onPasswordChanged(value: String) {
+        password = value
+        passwordError = null
+    }
+
+    fun selectRole(role: UserRole) {
+        userRole = role
+        refreshFromBackend()
+    }
+
     fun onOtpChanged(value: String) {
-        // Only allow up to 6 digits
         if (value.length <= 6 && value.all { it.isDigit() }) {
             otpInput = value
             otpError = null
@@ -113,19 +233,23 @@ class MainViewModel : ViewModel() {
 
     fun requestOtp() {
         val trimmed = email.trim().lowercase()
-        val isAuthorized = MockDataRepository.authorizedDomains.any { trimmed.endsWith(it) }
 
-        if (!isAuthorized) {
-            emailError = "Access Denied: Registration restricted to official law enforcement & RBI domains."
+        if (trimmed.isBlank()) {
+            emailError = "Please enter your email address."
             return
         }
-        if (trimmed.isBlank()) {
-            emailError = "Email address is required."
+        if (!trimmed.contains("@") || !trimmed.contains(".")) {
+            emailError = "Please enter a valid email address."
+            return
+        }
+        if (password.isBlank()) {
+            passwordError = "Enter your password to continue."
             return
         }
 
         otpRequested = true
         emailError = null
+        passwordError = null
         startOtpCountdown()
     }
 
@@ -137,10 +261,14 @@ class MainViewModel : ViewModel() {
             isAuthenticated = true
             failedAttempts = 0
             otpError = null
+            officerName = email.substringBefore("@").replace(".", " ")
+                .split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                .ifBlank { "Officer" }
             countdownJob?.cancel()
+            refreshFromBackend()
         } else {
             failedAttempts++
-            otpError = "Invalid OTP. Attempt $failedAttempts of 5."
+            otpError = "That code doesn't match. Attempt $failedAttempts of 5."
             otpInput = ""
 
             if (failedAttempts >= 5) {
@@ -157,7 +285,6 @@ class MainViewModel : ViewModel() {
         canResendOtp = false
         otpCountdownSeconds = 60
         startOtpCountdown()
-        // In a real app this would resend via SMS gateway
     }
 
     private fun startOtpCountdown() {
@@ -174,10 +301,8 @@ class MainViewModel : ViewModel() {
     }
 
     private fun startLockoutCountdown() {
-        // For demo: show 48-hour lockout message (countdown simulated)
         lockoutTimeRemaining = "48:00:00"
         viewModelScope.launch {
-            // Simulate lockout timer updating (demo purposes)
             var seconds = 48 * 60 * 60
             while (seconds > 0 && isLocked) {
                 val hrs = seconds / 3600
@@ -196,7 +321,8 @@ class MainViewModel : ViewModel() {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  NAVIGATION
+    //  NAVIGATION (bottom tabs only — case detail is a pushed screen,
+    //  handled by NavGraph, not tab state)
     // ═══════════════════════════════════════════════════════════════════
 
     fun selectTab(index: Int) {
@@ -211,17 +337,17 @@ class MainViewModel : ViewModel() {
         activeFilter = filter
     }
 
+    fun onTerminalSearchChanged(value: String) {
+        terminalSearch = value
+    }
+
     fun selectTerminal(terminal: TerminalMarker?) {
         selectedTerminal = terminal
     }
 
-    fun navigateToInvestigation() {
-        selectedTerminal = null
-        currentTab = 1
-    }
-
     // ═══════════════════════════════════════════════════════════════════
-    //  INVESTIGATION ACTIONS
+    //  CASE DETAIL ACTIONS — every action operates on the specific case
+    //  passed in (by ncrpId), never a hardcoded/global one.
     // ═══════════════════════════════════════════════════════════════════
 
     fun showApproveConfirmation() {
@@ -240,60 +366,85 @@ class MainViewModel : ViewModel() {
         showBankHoldDialog = false
     }
 
-    fun approveAndForward() {
-        showApproveDialog = false
-        investigationStatus = ActionStatus.APPROVED
-        addAuditEntry(
-            timestamp = "10:${18 + auditLog.size} AM",
-            officerName = "Bank Official User",
-            ncrpId = "NCRP-994821",
-            action = "Police Alert Dispatched (POST /cases/$selectedCaseId/police-alert)",
-            targetUnit = "Sector 20 Police Patrol Unit",
-            status = ActionStatus.EN_ROUTE
-        )
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val urls = listOf(
-                    "http://10.0.2.2:8001/cases/$selectedCaseId/police-alert",
-                    "http://localhost:8001/cases/$selectedCaseId/police-alert"
-                )
-                for (urlString in urls) {
-                    try {
-                        val url = java.net.URL(urlString)
-                        val conn = url.openConnection() as java.net.HttpURLConnection
-                        conn.requestMethod = "POST"
-                        conn.setRequestProperty("Content-Type", "application/json")
-                        conn.setRequestProperty("X-User-Role", "BANK_OFFICIAL")
-                        conn.doOutput = true
-                        conn.connectTimeout = 2000
-                        conn.readTimeout = 2000
-                        val jsonBody = "{\"source\": \"CyberShield Mobile App\"}"
-                        conn.outputStream.use { os -> os.write(jsonBody.toByteArray()) }
-                        if (conn.responseCode == 200) break
-                    } catch (_: Exception) {}
+    private fun replaceCase(updated: ComplaintTicket) {
+        val index = cases.indexOfFirst { it.ncrpId == updated.ncrpId }
+        if (index != -1) cases[index] = updated else cases.add(0, updated)
+    }
+
+    private fun runAction(ncrpId: String, action: String, fallbackStatus: ActionStatus) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { api.act(ncrpId, action, officerName) }
+            }.onSuccess { updated ->
+                replaceCase(updated)
+                addAuditEntry(officerName, ncrpId, updated.justification.ifBlank { action }, updated.targetTerminal.bankName, updated.status)
+            }.onFailure {
+                val current = caseById(ncrpId)
+                if (current != null) {
+                    val updated = current.copy(status = fallbackStatus)
+                    replaceCase(updated)
+                    addAuditEntry(officerName, ncrpId, "Action applied ($action)", current.targetTerminal.bankName, fallbackStatus)
                 }
-            } catch (_: Exception) {}
+            }
         }
-        showToast("Police Alert package created & delivered for $selectedCaseId.")
     }
 
-    fun issueBankHold() {
+    fun approveAndForward(ncrpId: String) {
+        showApproveDialog = false
+        if (caseById(ncrpId) == null) return
+        runAction(ncrpId, "escalate", ActionStatus.APPROVED)
+        showToast("Case sent to police with ATM location pack.")
+    }
+
+    fun issueBankHold(ncrpId: String) {
         showBankHoldDialog = false
-        investigationStatus = ActionStatus.BANK_HOLD
-        addAuditEntry(
-            timestamp = "10:${19 + auditLog.size} AM",
-            officerName = "Officer Current User",
-            ncrpId = "NCRP-994821",
-            action = "CBS Temporary Hold issued via CFCFRMS",
-            targetUnit = "SBI Core Banking System",
-            status = ActionStatus.LIEN_PLACED
-        )
-        showToast("Temporary Hold Issued to SBI Core Banking System")
+        val case = caseById(ncrpId) ?: return
+        runAction(ncrpId, "hold", ActionStatus.BANK_HOLD)
+        showToast("Provisional hold placed with ${case.targetTerminal.bankName}.")
     }
 
-    fun dismissFalsePositive() {
-        investigationStatus = ActionStatus.DISMISSED
-        showToast("Complaint dismissed as false positive.")
+    fun dismissFalsePositive(ncrpId: String) {
+        if (caseById(ncrpId) == null) return
+        runAction(ncrpId, "dismiss", ActionStatus.DISMISSED)
+        showToast("Case dismissed.")
+    }
+
+    fun releaseAfterCustomerConfirmation(ncrpId: String) {
+        val case = caseById(ncrpId) ?: return
+        if (case.status != ActionStatus.BANK_HOLD) return
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    api.act(ncrpId, "confirm_customer", officerName)
+                    api.act(ncrpId, "release", officerName)
+                }
+            }.onSuccess { updated ->
+                replaceCase(updated)
+                showToast("Hold released after customer confirmation.")
+            }.onFailure {
+                val updated = case.copy(status = ActionStatus.RELEASED)
+                replaceCase(updated)
+                addAuditEntry(officerName, ncrpId, "Hold released after customer confirmation", case.targetTerminal.bankName, ActionStatus.RELEASED)
+                showToast("Hold released after customer confirmation.")
+            }
+        }
+    }
+
+    fun fileComplaint(ncrpId: String) {
+        runAction(ncrpId, "file_complaint", ActionStatus.BANK_HOLD)
+        showToast("Complaint linked — digital and ATM block requested.")
+    }
+
+    fun simulateWithdraw(ncrpId: String) {
+        runAction(ncrpId, "simulate_withdraw", ActionStatus.EN_ROUTE)
+        showToast("Cash-out attempt recorded for police.")
+    }
+
+    private fun nearestPoliceUnit(case: ComplaintTicket): String {
+        // In production this comes from the jurisdiction lookup for the
+        // predicted terminal's location; kept simple for the prototype.
+        val area = case.targetTerminal.address.substringAfter(",").trim()
+        return "$area Police Station"
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -301,7 +452,6 @@ class MainViewModel : ViewModel() {
     // ═══════════════════════════════════════════════════════════════════
 
     private fun addAuditEntry(
-        timestamp: String,
         officerName: String,
         ncrpId: String,
         action: String,
@@ -311,13 +461,22 @@ class MainViewModel : ViewModel() {
         auditLog.add(
             0,
             AuditLogEntry(
-                timestamp = timestamp,
+                timestamp = currentTimeLabel(),
                 officerName = officerName,
                 ncrpId = ncrpId,
                 action = action,
                 targetUnit = targetUnit,
                 status = status
             )
+        )
+    }
+
+    private fun currentTimeLabel(): String {
+        val cal = java.util.Calendar.getInstance()
+        return String.format("%02d:%02d %s",
+            if (cal.get(java.util.Calendar.HOUR) == 0) 12 else cal.get(java.util.Calendar.HOUR),
+            cal.get(java.util.Calendar.MINUTE),
+            if (cal.get(java.util.Calendar.AM_PM) == 0) "AM" else "PM"
         )
     }
 

@@ -1,0 +1,618 @@
+"""Build live investigation cases from CSV + detection (no Android-side scoring)."""
+from __future__ import annotations
+
+import ast
+import csv
+import math
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from audit.blockchain_lite import AuditLedger
+from detection import scorer
+from detection.auto_intervention import decide as decide_intervention
+from pipeline.graph_store import GraphStore
+from scripts.demo_phase2 import (
+    build_critical_saturation_case,
+    build_geo_velocity_scenario,
+    build_mule_identity_ring,
+)
+from shared.persistence import Store
+from shared.schemas import AccountNodeMetadata, TransactionEvent
+
+PLAIN = {
+    "velocity": ("Money moved out unusually fast", "Funds left this account much faster than a normal customer would move them."),
+    "fan_in": ("Several accounts feeding one account", "Many unrelated accounts sent money into the same collector in a short window."),
+    "fan_out": ("Money split out to many accounts", "This account rapidly sent funds onward to several destinations."),
+    "layering": ("Money passed through several accounts quickly", "Hops were added to hide where the money started."),
+    "amount_movement": ("Almost all incoming money was forwarded", "Very little was kept or spent in a normal pattern."),
+    "account_age": ("Account is only days old", "Newly opened accounts are a common mule pattern."),
+    "device_fingerprint": ("Same device used across accounts", "One phone or device is linked to accounts that should be unrelated."),
+    "terminal_affinity": ("Close to a known cash-out spot", "Historical withdrawals point at this ATM or nearby agents."),
+    "geo_velocity": ("Impossible travel between two locations", "The same card/account was used in two cities faster than anyone can travel."),
+    "identity_cluster": ("Many accounts opened on one identity", "A cluster of accounts share one KYC identity — typical mule-ring behaviour."),
+    "ml_anomaly": ("Unusual behaviour for this account", "Current activity does not match this account's normal pattern."),
+}
+
+PIN_LABEL = {
+    "400001": "Mumbai",
+    "500001": "Hyderabad",
+    "110001": "New Delhi",
+    "201301": "Noida",
+    "302001": "Jaipur",
+}
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _parse_term_ids(raw: str) -> list:
+    raw = (raw or "").strip()
+    if not raw or raw == "[]":
+        return []
+    try:
+        val = ast.literal_eval(raw)
+        if isinstance(val, list):
+            return [str(x) for x in val]
+    except Exception:
+        pass
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def _inr(amount: float) -> str:
+    return f"₹{amount:,.0f}"
+
+
+def _window_label(start, end) -> str:
+    def fmt(v):
+        if isinstance(v, datetime):
+            return v.astimezone(timezone.utc).strftime("%H:%M")
+        s = str(v)
+        return s[11:16] if len(s) >= 16 else s
+    return f"{fmt(start)} – {fmt(end)} UTC"
+
+
+def _bank_from_terminal(tid: str) -> str:
+    parts = tid.split("-")
+    return parts[1] if len(parts) > 1 else "Bank"
+
+
+def _term_type(t: dict) -> str:
+    raw = str(t.get("terminal_type", "ATM_KIOSK"))
+    return "AEPS_MICRO_ATM" if "AEPS" in raw.upper() else "BANK_ATM"
+
+
+def _address(t: dict) -> str:
+    pin = str(t.get("district_pincode") or t.get("pincode") or "")
+    city = PIN_LABEL.get(pin, t.get("district") or "India")
+    return f"{t.get('terminal_id')}, {city} {pin}".strip()
+
+
+def _marker(t: dict, confidence: int, window: str, risk: str) -> dict:
+    return {
+        "id": t["terminal_id"],
+        "address": _address(t),
+        "type": _term_type(t),
+        "latitude": float(t.get("latitude") or 0),
+        "longitude": float(t.get("longitude") or 0),
+        "riskLevel": risk,
+        "confidencePercent": confidence,
+        "cashoutWindow": window,
+        "bankName": _bank_from_terminal(t["terminal_id"]),
+    }
+
+
+def _nearby(target: dict, terminals: List[dict], limit: int = 5) -> List[dict]:
+    lat, lon = float(target.get("latitude") or 0), float(target.get("longitude") or 0)
+    scored = []
+    for t in terminals:
+        if t.get("terminal_id") == target.get("terminal_id"):
+            continue
+        km = _haversine_km(lat, lon, float(t.get("latitude") or 0), float(t.get("longitude") or 0))
+        scored.append((km, t))
+    scored.sort(key=lambda x: x[0])
+    out = []
+    for km, t in scored[:limit]:
+        item = _marker(t, 40, "Monitor", "MEDIUM")
+        item["distanceKm"] = round(km, 2)
+        out.append(item)
+    return out
+
+
+def _trail(graph: GraphStore, account_id: str, predicted_id: str) -> dict:
+    hops: List[TransactionEvent] = []
+    cur = account_id
+    seen = {account_id}
+    for _ in range(8):
+        incoming = graph.transactions_involving(cur, direction="in")
+        if not incoming:
+            break
+        leg = max(incoming, key=lambda e: e.amount_inr)
+        if leg.source_account_id in seen:
+            break
+        hops.append(leg)
+        seen.add(leg.source_account_id)
+        cur = leg.source_account_id
+    hops.reverse()
+    nodes = []
+    edges = []
+    order: List[str] = []
+    for hop in hops:
+        if hop.source_account_id not in order:
+            order.append(hop.source_account_id)
+        if hop.target_account_id not in order:
+            order.append(hop.target_account_id)
+    if account_id not in order:
+        order.append(account_id)
+    if predicted_id not in order:
+        order.append(predicted_id)
+    for i, acc in enumerate(order):
+        kind = "terminal" if acc == predicted_id else ("victim" if i == 0 else ("aggregator" if acc == account_id else "mule"))
+        nodes.append({"label": acc, "type": kind, "accountHint": acc})
+    idx = {acc: i for i, acc in enumerate(order)}
+    for hop in hops:
+        edges.append({
+            "fromIndex": idx[hop.source_account_id],
+            "toIndex": idx[hop.target_account_id],
+            "label": hop.transaction_id,
+            "amount": _inr(hop.amount_inr),
+            "timestamp": str(hop.timestamp),
+            "channel": hop.payment_channel,
+        })
+    if predicted_id in idx and account_id in idx and predicted_id != account_id:
+        edges.append({
+            "fromIndex": idx[account_id],
+            "toIndex": idx[predicted_id],
+            "label": "predicted-cashout",
+            "amount": "Predicted cash-out",
+            "timestamp": "Predicted window",
+            "channel": "ATM / AEPS",
+        })
+    return {"nodes": nodes, "edges": edges}
+
+
+def _load_csv(graph: GraphStore) -> None:
+    acc_path = REPO_ROOT / "data-generator" / "data" / "accounts.csv"
+    txn_path = REPO_ROOT / "data-generator" / "data" / "transactions.csv"
+    if acc_path.exists():
+        with open(acc_path, encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                aid = row.get("account_id") or ""
+                if not aid:
+                    continue
+                sim = f"SIM-{aid[-5:]}-{abs(hash(aid)) % 9000 + 1000}"
+                graph.add_account_metadata(AccountNodeMetadata(
+                    account_id=aid,
+                    account_tier=row.get("account_tier") or "normal",
+                    account_age_days=int(float(row.get("account_age_days") or 0)),
+                    historical_terminal_ids=_parse_term_ids(row.get("historical_terminal_ids") or ""),
+                    kyc_identity_id=row.get("kyc_identity_id") or None,
+                ))
+                graph.accounts.setdefault(aid, {})["sim_hash"] = sim
+                graph.accounts[aid]["device_fingerprint"] = row.get("primary_device_fingerprint") or ""
+    if txn_path.exists():
+        with open(txn_path, encoding="utf-8") as f:
+            for i, row in enumerate(csv.DictReader(f)):
+                if i > 4000:
+                    break
+                try:
+                    graph.add_transaction(TransactionEvent.from_dict(row))
+                except Exception:
+                    continue
+
+
+def _boost_geo(graph: GraphStore, geo_id: str, base: datetime) -> None:
+    """Give the Mumbai→Hyderabad account enough corroborating activity to alert."""
+    for i in range(6):
+        src = f"ACC-GEOFEED{i:02d}"
+        graph.add_account_metadata(AccountNodeMetadata(account_id=src, account_tier="mule_l1", account_age_days=6))
+        graph.add_transaction(TransactionEvent(
+            transaction_id=f"TXN-GEO-FEED-{i:03d}",
+            source_account_id=src,
+            target_account_id=geo_id,
+            amount_inr=8000 + i * 250,
+            timestamp=base - timedelta(minutes=40, seconds=i * 8),
+            payment_channel="UPI",
+            device_fingerprint="DEV-GEO-SHARED",
+        ))
+
+
+def _withdrawals_for(account_id: str, terminals: List[dict], graph: GraphStore, blocked: bool):
+    usages = graph.recent_terminal_usages(account_id, limit=8)
+    by_id = {t["terminal_id"]: t for t in terminals}
+    out = []
+    counts: Dict[str, int] = {}
+    for u in usages:
+        tid = u["terminal_id"]
+        counts[tid] = counts.get(tid, 0) + 1
+        term = by_id.get(tid, {})
+        status = "BLOCKED" if blocked else "FLAGGED"
+        if counts[tid] >= 3:
+            status = "INTERCEPTED"
+        ts = u["timestamp"]
+        ts_s = ts.isoformat() if isinstance(ts, datetime) else str(ts)
+        out.append({
+            "attemptId": f"{account_id}-{tid}-{counts[tid]}",
+            "time": ts_s,
+            "amount": "₹10,000",
+            "terminalId": tid,
+            "location": _address(term) if term else tid,
+            "status": status,
+            "latitude": u.get("latitude"),
+            "longitude": u.get("longitude"),
+        })
+    if account_id.startswith("ACC-GEO") and len(out) < 3:
+        hyd = by_id.get("ATM-ICICI-HYD-903") or terminals[0]
+        for n in range(3):
+            out.append({
+                "attemptId": f"{account_id}-repeat-{n+1}",
+                "time": (datetime.now(timezone.utc) - timedelta(minutes=4 - n)).isoformat(),
+                "amount": "₹10,000",
+                "terminalId": hyd["terminal_id"],
+                "location": _address(hyd),
+                "status": "INTERCEPTED" if n == 2 else "BLOCKED",
+                "latitude": hyd.get("latitude"),
+                "longitude": hyd.get("longitude"),
+            })
+        counts[hyd["terminal_id"]] = 3
+    repeat_tid = max(counts, key=counts.get) if counts else None
+    return out, {
+        "accountId": account_id,
+        "terminalId": repeat_tid,
+        "attempts": counts.get(repeat_tid, 0) if repeat_tid else 0,
+        "escalation": (
+            "PERSISTENT_TERMINAL_RISK" if (repeat_tid and counts.get(repeat_tid, 0) >= 3)
+            else "ELEVATED_RISK" if (repeat_tid and counts.get(repeat_tid, 0) == 2)
+            else "MONITORED"
+        ),
+        "multiplier": 1.0 + 0.25 * max(0, (counts.get(repeat_tid, 0) if repeat_tid else 0) - 1),
+    }
+
+
+def _build_layering_provenance(graph: GraphStore, base: datetime) -> str:
+    victim = "ACC-VIC-DELHI"
+    mule1 = "ACC-MULE-L1B"
+    mule2 = "ACC-MULE-L2C"
+    aggr = "ACC-AGGR-NOIDA"
+    graph.add_account_metadata(AccountNodeMetadata(account_id=victim, account_tier="victim", account_age_days=850))
+    graph.add_account_metadata(AccountNodeMetadata(account_id=mule1, account_tier="mule_l1", account_age_days=8, historical_terminal_ids=["ATM-SBI-ND-042"]))
+    graph.add_account_metadata(AccountNodeMetadata(account_id=mule2, account_tier="mule_l2", account_age_days=5, historical_terminal_ids=["ATM-SBI-ND-042"]))
+    graph.add_account_metadata(AccountNodeMetadata(account_id=aggr, account_tier="aggregator", account_age_days=3, historical_terminal_ids=["ATM-SBI-ND-042"], district_pincode="201301"))
+    t = base - timedelta(minutes=15)
+    graph.add_transaction(TransactionEvent(
+        transaction_id="TXN-ROOT-00101", source_account_id=victim, target_account_id=mule1,
+        amount_inr=100000, timestamp=t, payment_channel="UPI", device_fingerprint="DEV-VIC-01"))
+    t += timedelta(minutes=2)
+    graph.add_transaction(TransactionEvent(
+        transaction_id="TXN-HOP-00102", source_account_id=mule1, target_account_id=mule2,
+        amount_inr=99000, timestamp=t, payment_channel="IMPS", device_fingerprint="DEV-MULE-L1"))
+    t += timedelta(minutes=2)
+    graph.add_transaction(TransactionEvent(
+        transaction_id="TXN-HOP-00103", source_account_id=mule2, target_account_id=aggr,
+        amount_inr=96000, timestamp=t, payment_channel="UPI", device_fingerprint="DEV-MULE-L2"))
+    return aggr
+
+
+def _build_precomplaint_protection(graph: GraphStore, base: datetime) -> str:
+    victim = "ACC-VIC-MUM"
+    target = "ACC-PRECOMP-SBI"
+    graph.add_account_metadata(AccountNodeMetadata(account_id=victim, account_tier="victim", account_age_days=950))
+    graph.add_account_metadata(AccountNodeMetadata(account_id=target, account_tier="mule_l1", account_age_days=14, historical_terminal_ids=["ATM-SBI-ND-042"], district_pincode="201301"))
+    graph.add_transaction(TransactionEvent(
+        transaction_id="TXN-LEGIT-009", source_account_id="ACC-SALARY-CORP", target_account_id=target,
+        amount_inr=20000, timestamp=base - timedelta(days=5), payment_channel="NEFT", device_fingerprint="DEV-CUSTOMER-NORMAL"))
+    t = base - timedelta(minutes=10)
+    for i in range(4):
+        src = f"ACC-BURSTFEED{i:02d}"
+        graph.add_account_metadata(AccountNodeMetadata(account_id=src, account_tier="victim", account_age_days=500))
+        graph.add_transaction(TransactionEvent(
+            transaction_id=f"TXN-BURST-{i:03d}", source_account_id=src, target_account_id=target,
+            amount_inr=12500, timestamp=t + timedelta(seconds=i * 20), payment_channel="UPI", device_fingerprint="DEV-BURST-FEED"))
+    return target
+
+
+class CaseEngine:
+    """In-memory operational store consumed by the Android app."""
+
+    def __init__(self) -> None:
+        self.graph = GraphStore()
+        self.terminals: List[dict] = []
+        self.cases: Dict[str, dict] = {}
+        self.audit: List[dict] = []
+        self.ledger = AuditLedger()
+        self.store = Store()
+        self._build()
+
+    def _build(self) -> None:
+        term_nodes = scorer.load_terminals()
+        self.terminals = [t.to_dict() for t in term_nodes]
+        self.graph.load_terminals(self.terminals)
+        base = datetime.now(timezone.utc)
+        _load_csv(self.graph)
+        ring = build_mule_identity_ring(self.graph, base)
+        geo = build_geo_velocity_scenario(self.graph, base)
+        _boost_geo(self.graph, geo, base)
+        critical = build_critical_saturation_case(self.graph, base)
+        layering = _build_layering_provenance(self.graph, base)
+        precomp = _build_precomplaint_protection(self.graph, base)
+        self.graph.record_terminal_usage(critical, "ATM-HDFC-Ce-001", base - timedelta(minutes=8))
+        self.graph.record_terminal_usage(critical, "ATM-HDFC-Ce-001", base - timedelta(minutes=5))
+        self.graph.record_terminal_usage(critical, "ATM-HDFC-Ce-001", base - timedelta(minutes=2))
+
+        showcase = [ring[0], geo, critical, layering, precomp]
+        tags = {
+            ring[0]: "mule-ring",
+            geo: "geo",
+            critical: "critical",
+            layering: "layering",
+            precomp: "precomplaint",
+        }
+        for account_id in showcase:
+            ev = scorer.evaluate_account(self.graph, account_id, as_of=base)
+            alert = scorer.analyze(self.graph, account_id, terminals=term_nodes, as_of=base, notify_threshold=1)
+            if alert is None:
+                continue
+            decision = decide_intervention(alert, ev.band)
+            self.ledger.append({
+                "complaint_id": alert.complaint_id,
+                "flagged_account_id": account_id,
+                "tier": decision.tier,
+                "justification": decision.justification,
+            })
+            try:
+                self.store.save_alert(alert, ev.band)
+                self.store.save_intervention(alert.complaint_id, decision)
+            except Exception:
+                pass
+            case = self._to_case(account_id, ev, alert, decision)
+            if account_id in tags:
+                case["demoTag"] = tags[account_id]
+            self.cases[case["ncrpId"]] = case
+
+        # Guarantee the three mentor scenarios are present even if scoring skipped them.
+        for account_id, tag in ((ring[0], "mule-ring"), (geo, "geo"), (critical, "critical")):
+            if not any(c.get("flaggedAccountId") == account_id for c in self.cases.values()):
+                ev = scorer.evaluate_account(self.graph, account_id, as_of=base)
+                alert = scorer.analyze(self.graph, account_id, terminals=term_nodes, as_of=base, notify_threshold=1)
+                if alert:
+                    decision = decide_intervention(alert, ev.band or "HIGH")
+                    case = self._to_case(account_id, ev, alert, decision)
+                    case["demoTag"] = tag
+                    self.cases[case["ncrpId"]] = case
+
+    def _to_case(self, account_id: str, ev, alert, decision) -> dict:
+        predicted = alert.predicted_terminals[0] if alert.predicted_terminals else None
+        term = next((t for t in self.terminals if predicted and t["terminal_id"] == predicted.terminal_id), None)
+        if term is None:
+            term = self.terminals[0] if self.terminals else {
+                "terminal_id": "ATM-UNKNOWN", "latitude": 28.57, "longitude": 77.32,
+                "terminal_type": "ATM_KIOSK", "district_pincode": "201301",
+            }
+        risk = ev.band if ev.band in {"CRITICAL", "HIGH", "MEDIUM", "LOW"} else "HIGH"
+        conf = int(round((alert.confidence or 0.6) * 100))
+        window = _window_label(alert.predicted_window_start, alert.predicted_window_end)
+        marker = _marker(term, max(conf, int(alert.risk_score * 100)), window, risk)
+        nearby = _nearby(term, self.terminals)
+        blocked = decision.tier in {"AUTO_FREEZE", "AUTO_HOLD"}
+        attempts, repeat = _withdrawals_for(account_id, self.terminals, self.graph, blocked)
+        signals = []
+        for r in ev.rules:
+            if r.severity <= 0:
+                continue
+            title, expl = PLAIN.get(r.name, (r.name.replace("_", " "), r.evidence))
+            signals.append({
+                "icon": "•",
+                "name": title,
+                "contributionPercent": int(round(r.points)),
+                "explanation": expl if expl.endswith(".") else (r.evidence or expl),
+                "technicalTag": f"{r.name}_rule",
+            })
+        signals.sort(key=lambda s: s["contributionPercent"], reverse=True)
+        exposure = 0.0
+        incoming = self.graph.transactions_involving(account_id, direction="in")
+        if incoming:
+            exposure = sum(e.amount_inr for e in incoming[-12:])
+        legitimate = max(5000.0, exposure * 0.15)
+        sim = (self.graph.accounts.get(account_id) or {}).get("sim_hash") or f"SIM-{account_id[-4:]}"
+        device = next(iter(self.graph._account_devices.get(account_id) or ["unknown"]), "unknown")
+        status = "PENDING"
+        digital = False
+        atm_block = False
+        if decision.tier == "AUTO_FREEZE":
+            status = "BANK_HOLD"
+            digital = True
+            atm_block = True
+        elif decision.tier == "AUTO_HOLD":
+            status = "BANK_HOLD"
+            digital = True
+        summary = (
+            f"{ev.band} risk on {account_id}. {signals[0]['name'] if signals else 'Multiple rules fired'}. "
+            f"Predicted cash-out {marker['id']} ({marker['address']}) in window {window}."
+        )
+        if any(r.name == "geo_velocity" and r.severity > 0 for r in ev.rules):
+            summary = (
+                f"Same account used in Mumbai then Hyderabad within minutes — physically impossible. "
+                f"Predicted next cash-out {marker['id']}."
+            )
+        elif any(r.name == "identity_cluster" and r.severity > 0 for r in ev.rules):
+            n = len(self.graph.accounts_sharing_kyc_identity(account_id)) + 1
+            if n >= 8:
+                summary = (
+                    f"{n} accounts share one KYC identity and are moving funds toward {marker['id']}."
+                )
+        elif account_id == "ACC-AGGR-NOIDA":
+            summary = (
+                f"₹1,00,000 rapid 4-hop layering chain from ACC-VIC-DELHI to ACC-AGGR-NOIDA. "
+                f"Predicted cash-out {marker['id']}."
+            )
+        elif account_id == "ACC-PRECOMP-SBI":
+            summary = (
+                "Provisional pre-complaint hold placed: ₹20,000 legitimate funds available, ₹50,000 suspicious exposure restricted. "
+                "Unblock eligible only after customer verification."
+            )
+            legitimate = 20000.0
+            exposure = 50000.0
+            status = "BANK_HOLD"
+            digital = True
+        lifecycle = "PRE_COMPLAINT_INTERVENTION"
+        if attempts:
+            lifecycle = "CASHOUT_ATTEMPT_DETECTED"
+        return {
+            "ncrpId": alert.complaint_id,
+            "reportedLoss": _inr(exposure or alert.risk_score * 100000),
+            "timeElapsed": "Live feed",
+            "victimAccount": account_id,
+            "flaggedAccountId": account_id,
+            "status": status,
+            "summary": summary,
+            "targetTerminal": marker,
+            "nearbyTerminals": nearby,
+            "moneyTrail": _trail(self.graph, account_id, marker["id"]),
+            "riskBreakdown": {"totalPercent": int(round(ev.score)), "signals": signals[:8]},
+            "complaintId": None,
+            "confirmationState": "PENDING_CONFIRMATION",
+            "transactionCount": len(incoming),
+            "digitalBlockActive": digital,
+            "atmBlockActive": atm_block,
+            "lifecycle": lifecycle,
+            "interventionTier": decision.tier,
+            "justification": decision.justification,
+            "legitimateBalance": round(legitimate, 2),
+            "suspiciousExposure": round(exposure, 2),
+            "withdrawalAttempts": attempts,
+            "repeatActivity": repeat,
+            "simHash": sim,
+            "deviceFingerprint": str(device),
+            "confidencePercent": conf,
+            "evidence": list(alert.evidence),
+        }
+
+    def list_cases(self, role: str = "BANK") -> List[dict]:
+        items = list(self.cases.values())
+        if role.upper().startswith("POLICE"):
+            return [c for c in items if c["status"] in {"APPROVED", "EN_ROUTE"}]
+        return items
+
+    def get(self, ncrp_id: str) -> Optional[dict]:
+        return self.cases.get(ncrp_id)
+
+    def _log(self, ncrp_id: str, action: str, status: str, officer: str = "Duty officer") -> None:
+        entry = {
+            "timestamp": datetime.now(timezone.utc).strftime("%H:%M"),
+            "officerName": officer,
+            "ncrpId": ncrp_id,
+            "action": action,
+            "targetUnit": self.cases.get(ncrp_id, {}).get("targetTerminal", {}).get("bankName", "—"),
+            "status": status,
+        }
+        self.audit.insert(0, entry)
+        self.ledger.append({"complaint_id": ncrp_id, "action": action, "status": status, "justification": action})
+
+    def act(self, ncrp_id: str, action: str, officer: str = "Duty officer") -> Optional[dict]:
+        case = self.cases.get(ncrp_id)
+        if not case:
+            return None
+        acc = case["flaggedAccountId"]
+        if action == "hold":
+            case["status"] = "BANK_HOLD"
+            case["digitalBlockActive"] = True
+            case["confirmationState"] = "PENDING_CONFIRMATION"
+            self._bank(acc, "hold", case)
+            self._log(ncrp_id, "Provisional digital hold placed (pre-complaint)", "BANK_HOLD", officer)
+        elif action == "escalate":
+            case["status"] = "APPROVED"
+            case["atmBlockActive"] = True
+            case["digitalBlockActive"] = True
+            case["lifecycle"] = "POST_COMPLAINT_ESCALATED"
+            case["complaintId"] = case["complaintId"] or ncrp_id
+            self._bank(acc, "freeze", case)
+            self._log(ncrp_id, "Forwarded to police with ATM/location pack", "APPROVED", officer)
+        elif action == "dismiss":
+            case["status"] = "DISMISSED"
+            case["lifecycle"] = "RESOLVED"
+            self._log(ncrp_id, "Dismissed as false positive", "DISMISSED", officer)
+        elif action == "release":
+            if case["status"] != "BANK_HOLD":
+                return case
+            if case["confirmationState"] != "CONFIRMED_LEGITIMATE":
+                case["confirmationState"] = "CONFIRMED_LEGITIMATE"
+            case["status"] = "RELEASED"
+            case["digitalBlockActive"] = False
+            case["atmBlockActive"] = False
+            case["lifecycle"] = "RESOLVED"
+            self._bank(acc, "unfreeze", case)
+            self._log(ncrp_id, "Hold released after customer confirmed activity was legitimate", "RELEASED", officer)
+        elif action == "confirm_customer":
+            case["confirmationState"] = "CONFIRMED_LEGITIMATE"
+            self._log(ncrp_id, "Bank official confirmed with customer — not malicious", "BANK_HOLD", officer)
+        elif action == "file_complaint":
+            case["complaintId"] = ncrp_id
+            case["lifecycle"] = "POST_COMPLAINT_ESCALATED"
+            case["atmBlockActive"] = True
+            case["digitalBlockActive"] = True
+            case["status"] = "BANK_HOLD"
+            self._bank(acc, "freeze", case)
+            self._log(ncrp_id, "NCRP complaint linked — online and physical ATM block", "BANK_HOLD", officer)
+        elif action == "simulate_withdraw":
+            term = case["targetTerminal"]
+            case["withdrawalAttempts"].append({
+                "attemptId": f"live-{len(case['withdrawalAttempts'])+1}",
+                "time": datetime.now(timezone.utc).isoformat(),
+                "amount": "₹10,000",
+                "terminalId": term["id"],
+                "location": term["address"],
+                "status": "BLOCKED" if (case["digitalBlockActive"] or case["atmBlockActive"]) else "FLAGGED",
+                "latitude": term["latitude"],
+                "longitude": term["longitude"],
+            })
+            case["lifecycle"] = "CASHOUT_ATTEMPT_DETECTED"
+            n = len([a for a in case["withdrawalAttempts"] if a["terminalId"] == term["id"]])
+            case["repeatActivity"] = {
+                "accountId": acc,
+                "terminalId": term["id"],
+                "attempts": n,
+                "escalation": "PERSISTENT_TERMINAL_RISK" if n >= 3 else "ELEVATED_RISK" if n == 2 else "MONITORED",
+                "multiplier": 1.0 + 0.25 * max(0, n - 1),
+            }
+            self._log(ncrp_id, f"Cash-out attempt at {term['id']} recorded for police", "EN_ROUTE", officer)
+        return case
+
+    def _bank(self, account_id: str, action: str, case: dict) -> None:
+        import json
+        import urllib.request
+        try:
+            body = json.dumps({
+                "reason": case.get("justification") or action,
+                "complaint_id": case["ncrpId"],
+                "confidence": (case.get("confidencePercent") or 0) / 100.0,
+            }).encode()
+            req = urllib.request.Request(
+                f"http://127.0.0.1:8001/accounts/{account_id}/{action}",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=1.5)
+        except Exception:
+            pass
+
+    def terminal_markers(self) -> List[dict]:
+        by_id = {c["targetTerminal"]["id"]: c["targetTerminal"] for c in self.cases.values()}
+        out = []
+        for t in self.terminals:
+            if t["terminal_id"] in by_id:
+                out.append(by_id[t["terminal_id"]])
+            else:
+                out.append(_marker(t, 25, "No active prediction", "LOW"))
+        return out

@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -12,35 +13,43 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.i4c.cybershield.model.UserRole
 import com.i4c.cybershield.ui.theme.*
 
 // ═══════════════════════════════════════════════════════════════════════
-//  AUTH SCREEN – Domain-Restricted Registration & OTP
+//  AUTH SCREEN – Clean, Modern Sign-In with Role Dropdown & Standard OTP
 // ═══════════════════════════════════════════════════════════════════════
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthScreen(
     email: String,
     emailError: String?,
+    password: String,
+    passwordError: String?,
     otpInput: String,
     otpError: String?,
     otpRequested: Boolean,
@@ -49,13 +58,19 @@ fun AuthScreen(
     lockoutTimeRemaining: String,
     otpCountdownSeconds: Int,
     canResendOtp: Boolean,
+    selectedRole: UserRole,
     onEmailChanged: (String) -> Unit,
+    onPasswordChanged: (String) -> Unit,
+    onRoleSelected: (UserRole) -> Unit,
     onOtpChanged: (String) -> Unit,
     onRequestOtp: () -> Unit,
     onVerifyOtp: () -> Unit,
     onResendOtp: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
+    val passwordFocusRequester = remember { FocusRequester() }
+    val otpFocusRequester = remember { FocusRequester() }
+    var roleDropdownExpanded by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -79,33 +94,179 @@ fun AuthScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
                 .alpha(if (isLocked) 0.15f else 1f),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Header
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Clean Brand Header
             AuthHeader()
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(36.dp))
 
-            // Email Input
-            EmailInputField(
-                email = email,
-                emailError = emailError,
-                onEmailChanged = onEmailChanged,
-                enabled = !isLocked,
-                onSubmit = { onRequestOtp() }
+            // ─── 1. Email Field ───────────────────────────────────────
+            OutlinedTextField(
+                value = email,
+                onValueChange = onEmailChanged,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !otpRequested && !isLocked,
+                label = { Text("Email", color = BorderTaupe) },
+                placeholder = { Text("name@example.com", color = BorderTaupe.copy(alpha = 0.5f)) },
+                singleLine = true,
+                isError = emailError != null,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AlertOrange,
+                    unfocusedBorderColor = BorderTaupe.copy(alpha = 0.5f),
+                    errorBorderColor = ErrorRed,
+                    focusedTextColor = TextOffWhite,
+                    unfocusedTextColor = TextOffWhite,
+                    cursorColor = AlertOrange,
+                    focusedLabelColor = AlertOrange,
+                    errorLabelColor = ErrorRed
+                ),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction = ImeAction.Next
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { passwordFocusRequester.requestFocus() }
+                )
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            if (emailError != null) {
+                Text(
+                    text = emailError,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 4.dp, top = 4.dp),
+                    color = ErrorRed,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
 
-            // Request OTP Button
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // ─── 2. Password Field ────────────────────────────────────
+            OutlinedTextField(
+                value = password,
+                onValueChange = onPasswordChanged,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(passwordFocusRequester),
+                enabled = !otpRequested && !isLocked,
+                label = { Text("Password", color = BorderTaupe) },
+                placeholder = { Text("Enter password", color = BorderTaupe.copy(alpha = 0.5f)) },
+                singleLine = true,
+                isError = passwordError != null,
+                visualTransformation = PasswordVisualTransformation(),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AlertOrange,
+                    unfocusedBorderColor = BorderTaupe.copy(alpha = 0.5f),
+                    errorBorderColor = ErrorRed,
+                    focusedTextColor = TextOffWhite,
+                    unfocusedTextColor = TextOffWhite,
+                    cursorColor = AlertOrange,
+                    focusedLabelColor = AlertOrange,
+                    errorLabelColor = ErrorRed
+                ),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        focusManager.clearFocus()
+                        if (!otpRequested) onRequestOtp()
+                    }
+                )
+            )
+
+            if (passwordError != null) {
+                Text(
+                    text = passwordError,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 4.dp, top = 4.dp),
+                    color = ErrorRed,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // ─── 3. Role Dropdown Box ──────────────────────────────────
+            ExposedDropdownMenuBox(
+                expanded = roleDropdownExpanded && !otpRequested && !isLocked,
+                onExpandedChange = {
+                    if (!otpRequested && !isLocked) {
+                        roleDropdownExpanded = !roleDropdownExpanded
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = selectedRole.displayName,
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = !otpRequested && !isLocked,
+                    label = { Text("Role", color = BorderTaupe) },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = roleDropdownExpanded)
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AlertOrange,
+                        unfocusedBorderColor = BorderTaupe.copy(alpha = 0.5f),
+                        focusedTextColor = TextOffWhite,
+                        unfocusedTextColor = TextOffWhite,
+                        focusedLabelColor = AlertOrange
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor()
+                )
+
+                ExposedDropdownMenu(
+                    expanded = roleDropdownExpanded,
+                    onDismissRequest = { roleDropdownExpanded = false },
+                    modifier = Modifier.background(SurfaceCharcoal)
+                ) {
+                    UserRole.entries.forEach { role ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = role.displayName,
+                                    color = if (role == selectedRole) AlertOrange else TextOffWhite,
+                                    fontWeight = if (role == selectedRole) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            onClick = {
+                                onRoleSelected(role)
+                                roleDropdownExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ─── Request OTP Button ────────────────────────────────────
             AnimatedVisibility(visible = !otpRequested && !isLocked) {
                 Button(
-                    onClick = onRequestOtp,
-                    enabled = email.isNotBlank() && !isLocked,
+                    onClick = {
+                        focusManager.clearFocus()
+                        onRequestOtp()
+                    },
+                    enabled = email.isNotBlank() && password.isNotBlank() && !isLocked,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
@@ -122,27 +283,28 @@ fun AuthScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "SEND SECURE OTP",
+                        text = "SEND OTP",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
                 }
             }
 
-            // OTP Section
+            // ─── 4. Standard OTP Input Section ────────────────────────
             AnimatedVisibility(
                 visible = otpRequested && !isLocked,
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically()
             ) {
                 Column(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // OTP Info Banner
+                    // Demo OTP info & quick fill
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOtpChanged("123456") },
                         shape = RoundedCornerShape(10.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = SuccessGreen.copy(alpha = 0.12f)
@@ -156,32 +318,80 @@ fun AuthScreen(
                             )
                         )
                     ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Demo OTP: 123456",
+                                color = SuccessGreen,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Tap to Auto-fill",
+                                color = MediumCyan,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Standard single OTP field (normal input)
+                    OutlinedTextField(
+                        value = otpInput,
+                        onValueChange = onOtpChanged,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(otpFocusRequester),
+                        enabled = !isLocked,
+                        label = { Text("Enter OTP", color = BorderTaupe) },
+                        placeholder = { Text("123456", color = BorderTaupe.copy(alpha = 0.5f)) },
+                        singleLine = true,
+                        isError = otpError != null,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AlertOrange,
+                            unfocusedBorderColor = BorderTaupe.copy(alpha = 0.5f),
+                            errorBorderColor = ErrorRed,
+                            focusedTextColor = TextOffWhite,
+                            unfocusedTextColor = TextOffWhite,
+                            cursorColor = AlertOrange,
+                            focusedLabelColor = AlertOrange,
+                            errorLabelColor = ErrorRed
+                        ),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                focusManager.clearFocus()
+                                onVerifyOtp()
+                            }
+                        )
+                    )
+
+                    if (otpError != null) {
                         Text(
-                            text = "OTP sent to $email\nDemo OTP: 123456",
-                            modifier = Modifier.padding(12.dp),
-                            color = SuccessGreen,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp
+                            text = otpError,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 4.dp, top = 4.dp),
+                            color = ErrorRed,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // OTP Input Field
-                    OtpInputField(
-                        otpValue = otpInput,
-                        otpError = otpError,
-                        onOtpChanged = onOtpChanged,
-                        enabled = !isLocked,
-                        onSubmit = {
-                            focusManager.clearFocus()
-                            onVerifyOtp()
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Countdown / Resend
+                    // Resend OTP / attempts row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -203,7 +413,7 @@ fun AuthScreen(
                             }
                         }
 
-                        if (otpError != null) {
+                        if (failedAttempts > 0) {
                             Text(
                                 text = "Attempts: $failedAttempts/5",
                                 color = if (failedAttempts >= 3) AlertOrange else ErrorRed,
@@ -213,7 +423,7 @@ fun AuthScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     // Verify OTP Button
                     Button(
@@ -247,18 +457,19 @@ fun AuthScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
-// ─── Sub-Components ────────────────────────────────────────────────────
+// ─── Clean Header ──────────────────────────────────────────────────────
 
 @Composable
 private fun AuthHeader() {
-    // Animated shield emblem
     val infiniteTransition = rememberInfiniteTransition(label = "shield_pulse")
     val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.6f,
+        initialValue = 0.7f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(2000, easing = FastOutSlowInEasing),
@@ -270,10 +481,10 @@ private fun AuthHeader() {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Shield Emblem Placeholder
+        // Shield Emblem
         Box(
             modifier = Modifier
-                .size(96.dp)
+                .size(88.dp)
                 .clip(CircleShape)
                 .background(SurfaceCharcoal)
                 .border(2.dp, AlertOrange.copy(alpha = glowAlpha), CircleShape),
@@ -281,253 +492,26 @@ private fun AuthHeader() {
         ) {
             Icon(
                 imageVector = Icons.Default.Security,
-                contentDescription = "MHA / I4C Emblem",
+                contentDescription = "Shield Emblem",
                 tint = AlertOrange.copy(alpha = glowAlpha),
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(44.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Title
         Text(
             text = "CYBER SHIELD",
-            fontSize = 28.sp,
+            fontSize = 26.sp,
             fontWeight = FontWeight.Black,
             color = TextOffWhite,
             letterSpacing = 4.sp
         )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Subtitle
-        Text(
-            text = "Predictive Cashout Radar",
-            fontSize = 14.sp,
-            color = AlertOrange,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 2.sp
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Badge
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = SurfaceCharcoal
-            ),
-            border = CardDefaults.outlinedCardBorder().copy(
-                brush = Brush.linearGradient(
-                    colors = listOf(BorderTaupe.copy(alpha = 0.4f), BorderTaupe.copy(alpha = 0.1f))
-                )
-            )
-        ) {
-            Text(
-                text = "Authorized Personnel Login Only",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                color = BorderTaupe,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 1.sp
-            )
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = "Ministry of Home Affairs • I4C Cybercrime Defense",
-            fontSize = 10.sp,
-            color = BorderTaupe.copy(alpha = 0.7f),
-            letterSpacing = 0.5.sp
-        )
     }
 }
 
-@Composable
-private fun EmailInputField(
-    email: String,
-    emailError: String?,
-    onEmailChanged: (String) -> Unit,
-    enabled: Boolean,
-    onSubmit: () -> Unit
-) {
-    val focusManager = LocalFocusManager.current
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = email,
-            onValueChange = onEmailChanged,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = enabled,
-            label = { Text("Official Email Address", color = BorderTaupe) },
-            placeholder = { Text("name@police.gov.in", color = BorderTaupe.copy(alpha = 0.5f)) },
-            singleLine = true,
-            isError = emailError != null,
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = AlertOrange,
-                unfocusedBorderColor = BorderTaupe.copy(alpha = 0.5f),
-                errorBorderColor = ErrorRed,
-                focusedTextColor = TextOffWhite,
-                unfocusedTextColor = TextOffWhite,
-                cursorColor = AlertOrange,
-                focusedLabelColor = AlertOrange,
-                errorLabelColor = ErrorRed
-            ),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Email,
-                imeAction = ImeAction.Done
-            ),
-            keyboardActions = KeyboardActions(
-                onDone = {
-                    focusManager.clearFocus()
-                    onSubmit()
-                }
-            )
-        )
-
-        // Error Banner
-        AnimatedVisibility(
-            visible = emailError != null,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
-        ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = ErrorRed.copy(alpha = 0.15f)
-                ),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = Brush.linearGradient(
-                        colors = listOf(ErrorRed.copy(alpha = 0.6f), ErrorRed.copy(alpha = 0.2f))
-                    )
-                )
-            ) {
-                Text(
-                    text = emailError ?: "",
-                    modifier = Modifier.padding(12.dp),
-                    color = ErrorRed,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    lineHeight = 17.sp
-                )
-            }
-        }
-
-        // Domain hint
-        Text(
-            text = "Allowed: @police.gov.in | @gov.in | @rbi.org.in",
-            modifier = Modifier.padding(top = 6.dp),
-            fontSize = 10.sp,
-            color = BorderTaupe.copy(alpha = 0.6f)
-        )
-    }
-}
-
-@Composable
-private fun OtpInputField(
-    otpValue: String,
-    otpError: String?,
-    onOtpChanged: (String) -> Unit,
-    enabled: Boolean,
-    onSubmit: () -> Unit
-) {
-    val focusManager = LocalFocusManager.current
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "Enter 6-Digit OTP",
-            color = BorderTaupe,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            textAlign = TextAlign.Start
-        )
-
-        // Individual digit boxes
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Show 6 individual boxes
-            repeat(6) { index ->
-                val digit = otpValue.getOrNull(index)?.toString() ?: ""
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .aspectRatio(0.7f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(SurfaceCharcoal)
-                        .border(
-                            width = if (index == otpValue.length) 2.dp else 1.dp,
-                            color = when {
-                                otpError != null -> ErrorRed
-                                index == otpValue.length -> AlertOrange
-                                digit.isNotEmpty() -> AlertOrange.copy(alpha = 0.5f)
-                                else -> BorderTaupe.copy(alpha = 0.3f)
-                            },
-                            shape = RoundedCornerShape(10.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = digit,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextOffWhite,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
-        }
-
-        // Hidden text field for actual input capture
-        OutlinedTextField(
-            value = otpValue,
-            onValueChange = onOtpChanged,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(0.dp)
-                .alpha(0f),
-            enabled = enabled,
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Number,
-                imeAction = ImeAction.Done
-            ),
-            keyboardActions = KeyboardActions(
-                onDone = {
-                    focusManager.clearFocus()
-                    onSubmit()
-                }
-            )
-        )
-
-        // OTP Error
-        AnimatedVisibility(visible = otpError != null) {
-            Text(
-                text = otpError ?: "",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                color = ErrorRed,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Start
-            )
-        }
-    }
-}
+// ─── Lockdown Card ─────────────────────────────────────────────────────
 
 @Composable
 private fun LockdownCard(lockoutTimeRemaining: String) {
@@ -553,7 +537,6 @@ private fun LockdownCard(lockoutTimeRemaining: String) {
                 modifier = Modifier.padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Lock icon
                 Box(
                     modifier = Modifier
                         .size(72.dp)
@@ -572,7 +555,7 @@ private fun LockdownCard(lockoutTimeRemaining: String) {
                 Spacer(modifier = Modifier.height(20.dp))
 
                 Text(
-                    text = "ACCOUNT FROZEN",
+                    text = "ACCOUNT LOCKED",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Black,
                     color = AlertOrange,
@@ -582,7 +565,7 @@ private fun LockdownCard(lockoutTimeRemaining: String) {
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "5 Consecutive Failed Security Attempts",
+                    text = "5 Consecutive Failed Attempts",
                     fontSize = 14.sp,
                     color = TextOffWhite,
                     fontWeight = FontWeight.Medium,
@@ -592,7 +575,7 @@ private fun LockdownCard(lockoutTimeRemaining: String) {
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "48-Hour System Lockdown Activated",
+                    text = "Security Lockdown Activated",
                     fontSize = 16.sp,
                     color = AlertOrange,
                     fontWeight = FontWeight.Bold,
@@ -601,7 +584,6 @@ private fun LockdownCard(lockoutTimeRemaining: String) {
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Countdown display
                 Card(
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(
@@ -629,16 +611,6 @@ private fun LockdownCard(lockoutTimeRemaining: String) {
                         )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Text(
-                    text = "Contact I4C Administrator\nadmin@i4c.gov.in • 1930 Helpline",
-                    fontSize = 12.sp,
-                    color = BorderTaupe,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 18.sp
-                )
             }
         }
     }
