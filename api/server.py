@@ -246,6 +246,47 @@ async def list_audit():
     return {"audit": ENGINE.audit}
 
 
+@app.get("/heatmap")
+async def get_heatmap(
+    event_type: Optional[str] = Query(None),
+    city: Optional[str] = Query(None),
+    start_time: Optional[str] = Query(None),
+    end_time: Optional[str] = Query(None),
+    case_id: Optional[str] = Query(None),
+    aggregate: bool = Query(True)
+):
+    return ENGINE.get_heatmap_points(
+        case_id=case_id,
+        event_type=event_type,
+        city=city,
+        start_time=start_time,
+        end_time=end_time,
+        aggregate=aggregate
+    )
+
+
+@app.get("/cases/{case_id}/heatmap")
+async def get_case_heatmap(
+    case_id: str,
+    event_type: Optional[str] = Query(None),
+    city: Optional[str] = Query(None),
+    start_time: Optional[str] = Query(None),
+    end_time: Optional[str] = Query(None),
+    aggregate: bool = Query(True)
+):
+    case = ENGINE.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return ENGINE.get_heatmap_points(
+        case_id=case_id,
+        event_type=event_type,
+        city=city,
+        start_time=start_time,
+        end_time=end_time,
+        aggregate=aggregate
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Deterministic Live Demo Trigger Flow
 # ─────────────────────────────────────────────────────────────────────────────

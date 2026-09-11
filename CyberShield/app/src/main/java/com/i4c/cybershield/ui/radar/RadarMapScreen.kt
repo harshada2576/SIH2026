@@ -62,6 +62,11 @@ fun RadarMapScreen(
     searchQuery: String,
     activeFilter: String,
     selectedTerminal: TerminalMarker?,
+    isHeatmapEnabled: Boolean = true,
+    heatmapPoints: List<HeatmapPoint> = emptyList(),
+    heatmapEventType: String = "ALL",
+    onToggleHeatmap: () -> Unit = {},
+    onHeatmapEventTypeChanged: (String) -> Unit = {},
     onFilterChanged: (String) -> Unit,
     onSearchChanged: (String) -> Unit,
     onTerminalSelected: (TerminalMarker) -> Unit,
@@ -112,6 +117,10 @@ fun RadarMapScreen(
         RadarTopBar(
             searchQuery = searchQuery,
             activeFilter = activeFilter,
+            isHeatmapEnabled = isHeatmapEnabled,
+            heatmapEventType = heatmapEventType,
+            onToggleHeatmap = onToggleHeatmap,
+            onHeatmapEventTypeChanged = onHeatmapEventTypeChanged,
             onFilterChanged = onFilterChanged,
             onSearchChanged = onSearchChanged,
             terminalCount = terminals.size,
@@ -214,6 +223,46 @@ fun RadarMapScreen(
                 update = { view ->
                     view.getMapAsync { map ->
                         map.getStyle { style ->
+                            // ── Heatmap Layer ────────────────────────
+                            val heatFeatures = if (isHeatmapEnabled) {
+                                heatmapPoints.map { hp ->
+                                    Feature.fromGeometry(Point.fromLngLat(hp.longitude, hp.latitude)).apply {
+                                        addNumberProperty("weight", hp.weight)
+                                        addStringProperty("eventType", hp.eventType)
+                                    }
+                                }
+                            } else emptyList()
+
+                            val heatSource = style.getSourceAs<GeoJsonSource>("heatmap-source")
+                            if (heatSource != null) {
+                                heatSource.setGeoJson(FeatureCollection.fromFeatures(heatFeatures))
+                            } else {
+                                style.addSource(GeoJsonSource("heatmap-source", FeatureCollection.fromFeatures(heatFeatures)))
+
+                                val heatCircleLayer = CircleLayer("heatmap-layer", "heatmap-source")
+                                    .withProperties(
+                                        PropertyFactory.circleRadius(
+                                            Expression.interpolate(
+                                                Expression.linear(),
+                                                Expression.zoom(),
+                                                Expression.stop(3, 22f),
+                                                Expression.stop(14, 75f)
+                                            )
+                                        ),
+                                        PropertyFactory.circleColor(
+                                            Expression.step(
+                                                Expression.get("weight"),
+                                                Expression.color(android.graphics.Color.parseColor("#4000BCD4")),
+                                                Expression.stop(0.65f, Expression.color(android.graphics.Color.parseColor("#70FF9800"))),
+                                                Expression.stop(0.85f, Expression.color(android.graphics.Color.parseColor("#90FF1744")))
+                                            )
+                                        ),
+                                        PropertyFactory.circleBlur(0.85f)
+                                    )
+                                style.addLayer(heatCircleLayer)
+                            }
+
+                            // ── Terminal Markers Layer ───────────────
                             val features = terminals.map { terminal ->
                                 Feature.fromGeometry(Point.fromLngLat(terminal.longitude, terminal.latitude)).apply {
                                     addStringProperty("id", terminal.id)

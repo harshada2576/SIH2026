@@ -114,6 +114,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
         private set
 
+    // ─── Heatmap State ──────────────────────────────────────────────────
+    var isHeatmapEnabled by mutableStateOf(true)
+        private set
+    var heatmapEventType by mutableStateOf("ALL")
+        private set
+    var heatmapPoints = mutableStateListOf<HeatmapPoint>()
+        private set
+
+    fun toggleHeatmap() {
+        isHeatmapEnabled = !isHeatmapEnabled
+    }
+
+    fun setHeatmapEventType(type: String) {
+        heatmapEventType = type
+        refreshFromBackend()
+    }
+
     // ─── Case Queue (live, mutable — this is the source of truth) ──────
     var cases = mutableStateListOf<ComplaintTicket>().apply {
         addAll(MockDataRepository.cases)
@@ -247,9 +264,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val loaded = api.fetchCases(userRole)
                     val terms = api.fetchTerminals()
                     val log = api.fetchAudit()
-                    Triple(loaded, terms, log)
-                }
-            }.onSuccess { (loaded, terms, log) ->
+                    val heat = api.fetchHeatmap(heatmapEventType)
+            }.onSuccess { (loaded, terms, logAndHeat) ->
+                val (log, heat) = logAndHeat
                 if (loaded.isNotEmpty()) {
                     cases.clear()
                     cases.addAll(loaded)
@@ -262,6 +279,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     auditLog.clear()
                     auditLog.addAll(log)
                 }
+                if (heat.isNotEmpty()) {
+                    heatmapPoints.clear()
+                    heatmapPoints.addAll(heat)
+                }
             }.onFailure {
                 if (cases.isEmpty()) {
                     cases.addAll(MockDataRepository.cases)
@@ -271,6 +292,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 if (auditLog.isEmpty()) {
                     auditLog.addAll(MockDataRepository.auditLogEntries)
+                }
+                if (heatmapPoints.isEmpty()) {
+                    val fallbackPoints = liveTerminals.map { t ->
+                        HeatmapPoint(
+                            latitude = t.latitude,
+                            longitude = t.longitude,
+                            weight = if (t.confidencePercent >= 80) 0.9 else 0.5,
+                            eventType = if (t.confidencePercent >= 80) "PREDICTED_CASHOUT" else "SUSPICIOUS_ACTIVITY",
+                            timestamp = "",
+                            terminalId = t.id,
+                            city = "India",
+                            riskLevel = t.riskLevel.name
+                        )
+                    }
+                    heatmapPoints.addAll(fallbackPoints)
                 }
             }
         }

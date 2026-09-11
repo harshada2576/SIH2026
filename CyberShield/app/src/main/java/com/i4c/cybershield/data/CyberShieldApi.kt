@@ -34,6 +34,26 @@ class CyberShieldApi(private val context: Context) {
         return (0 until arr.length()).map { parseAudit(arr.getJSONObject(it)) }
     }
 
+    fun fetchHeatmap(eventType: String? = null, city: String? = null): List<HeatmapPoint> {
+        val queryParams = mutableListOf<String>()
+        if (!eventType.isNullOrBlank() && eventType != "ALL") {
+            queryParams.add("event_type=$eventType")
+        }
+        if (!city.isNullOrBlank()) {
+            queryParams.add("city=$city")
+        }
+        val qs = if (queryParams.isNotEmpty()) "?" + queryParams.joinToString("&") else ""
+        val json = get("/heatmap$qs")
+        val arr = json.optJSONArray("points") ?: JSONArray()
+        return (0 until arr.length()).map { parseHeatmapPoint(arr.getJSONObject(it)) }
+    }
+
+    fun fetchCaseHeatmap(caseId: String): List<HeatmapPoint> {
+        val json = get("/cases/$caseId/heatmap")
+        val arr = json.optJSONArray("points") ?: JSONArray()
+        return (0 until arr.length()).map { parseHeatmapPoint(arr.getJSONObject(it)) }
+    }
+
     fun act(ncrpId: String, action: String, officer: String): ComplaintTicket {
         val body = JSONObject().put("officer", officer)
         return parseCase(post("/cases/$ncrpId/$action", body))
@@ -92,6 +112,18 @@ fun parseTerminal(obj: JSONObject): TerminalMarker = TerminalMarker(
     cashoutWindow = obj.optString("cashoutWindow"),
     bankName = obj.optString("bankName", "Bank"),
     distanceKm = if (obj.has("distanceKm")) obj.optDouble("distanceKm") else null
+)
+
+fun parseHeatmapPoint(obj: JSONObject): HeatmapPoint = HeatmapPoint(
+    latitude = obj.optDouble("latitude"),
+    longitude = obj.optDouble("longitude"),
+    weight = obj.optDouble("weight", 0.5),
+    eventType = obj.optString("event_type", "SUSPICIOUS_ACTIVITY"),
+    timestamp = obj.optString("timestamp", ""),
+    caseId = if (obj.has("case_id") && !obj.isNull("case_id")) obj.optString("case_id") else null,
+    terminalId = if (obj.has("terminal_id") && !obj.isNull("terminal_id")) obj.optString("terminal_id") else null,
+    city = obj.optString("city", "India"),
+    riskLevel = obj.optString("risk_level", "HIGH")
 )
 
 fun parseCase(obj: JSONObject): ComplaintTicket {
