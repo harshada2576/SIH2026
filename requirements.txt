@@ -7,3 +7,10 @@ pytest>=7.0
 # Phase 2 additions (see detection/requirements.txt for details):
 scikit-learn>=1.3
 cryptography>=41.0
+
+# Mobile Live Demo Integration & Dynamic LAN Discovery:
+fastapi>=0.110.0
+uvicorn>=0.28.0
+websockets>=12.0
+zeroconf>=0.130.0
+httpx>=0.27.0

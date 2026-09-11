@@ -10,12 +10,17 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.i4c.cybershield.data.CyberShieldApi
 import com.i4c.cybershield.data.MockDataRepository
+import com.i4c.cybershield.data.parseAudit
+import com.i4c.cybershield.data.parseCase
 import com.i4c.cybershield.model.*
+import com.i4c.cybershield.net.ConnectionState
+import com.i4c.cybershield.net.NetworkConnectionManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 // ═══════════════════════════════════════════════════════════════════════
 //  MAIN VIEW MODEL
@@ -23,18 +28,21 @@ import kotlinx.coroutines.withContext
 //  the case currently being reviewed, and the audit trail.
 //
 //  Every case tracks its OWN status (cases is a live list, not one shared
-//  field) so approving/freezing/dismissing one case never affects another,
-//  and re-opening any case from the queue always shows that case's own
-//  evidence — this is the fix for the single-hardcoded-case bug.
+//  field) so approving/freezing/dismissing one case never affects another.
+//
+//  Connected to NetworkConnectionManager for dynamic mDNS/UDP discovery,
+//  hotspot rediscovery, and real-time live WebSocket alert streaming.
 // ═══════════════════════════════════════════════════════════════════════
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
+    val connectionManager = NetworkConnectionManager.getInstance(application)
     private val api = CyberShieldApi(application)
-    var backendOnline by mutableStateOf(false)
-        private set
-    var backendMessage by mutableStateOf("Connecting to detection API…")
-        private set
+
+    val connectionState: ConnectionState get() = connectionManager.connectionState
+    val backendOnline: Boolean get() = connectionManager.connectionState == ConnectionState.CONNECTED
+    val backendMessage: String get() = connectionManager.statusMessage
+    val currentServerUrl: String get() = connectionManager.baseUrl
 
     // ─── Authentication State ──────────────────────────────────────────
     var email by mutableStateOf("")
@@ -86,9 +94,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val filteredTerminals: List<TerminalMarker>
         get() {
             val byType = when (activeFilter) {
-            "Bank ATMs" -> liveTerminals.filter { it.type == TerminalType.BANK_ATM }
-            "AEPS Micro-ATMs" -> liveTerminals.filter { it.type == TerminalType.AEPS_MICRO_ATM }
-            else -> liveTerminals
+                "Bank ATMs" -> liveTerminals.filter { it.type == TerminalType.BANK_ATM }
+                "AEPS Micro-ATMs" -> liveTerminals.filter { it.type == TerminalType.AEPS_MICRO_ATM }
+                else -> liveTerminals
             }
             val query = terminalSearch.trim().lowercase()
             return if (query.isBlank()) byType else byType.filter {
@@ -143,6 +151,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var showBankHoldDialog by mutableStateOf(false)
         private set
+    var showNetworkConfigDialog by mutableStateOf(false)
+        private set
 
     // ─── Audit / Activity log ───────────────────────────────────────────
     var auditLog = mutableStateListOf<AuditLogEntry>().apply {
@@ -153,13 +163,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     init {
-        startLiveFeed()
+        setupWebSocketListener()
+        connectionManager.startDiscovery()
+        startPeriodicSync()
     }
 
-    private fun startLiveFeed() {
+    private fun setupWebSocketListener() {
+        connectionManager.addEventListener { eventType, json ->
+            viewModelScope.launch(Dispatchers.Main) {
+                when (eventType) {
+                    "NEW_ALERT" -> {
+                        val caseObj = json.optJSONObject("data")?.optJSONObject("case")
+                        if (caseObj != null) {
+                            val parsed = parseCase(caseObj)
+                            replaceCase(parsed)
+                            showToast("🚨 New Risk Alert: ${parsed.ncrpId} (${parsed.targetTerminal.id})")
+                        }
+                        refreshFromBackend()
+                    }
+                    "CASE_UPDATED" -> {
+                        val caseObj = json.optJSONObject("data")?.optJSONObject("case")
+                        if (caseObj != null) {
+                            val parsed = parseCase(caseObj)
+                            replaceCase(parsed)
+                        }
+                        val auditObj = json.optJSONObject("data")?.optJSONObject("audit")
+                        if (auditObj != null) {
+                            val parsedAudit = parseAudit(auditObj)
+                            if (auditLog.none { it.timestamp == parsedAudit.timestamp && it.ncrpId == parsedAudit.ncrpId && it.action == parsedAudit.action }) {
+                                auditLog.add(0, parsedAudit)
+                            }
+                        }
+                    }
+                    "HANDSHAKE_ACK" -> {
+                        refreshFromBackend()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun startPeriodicSync() {
         viewModelScope.launch {
             while (true) {
-                refreshFromBackend()
+                if (connectionManager.connectionState == ConnectionState.CONNECTED) {
+                    refreshFromBackend()
+                } else if (connectionManager.connectionState == ConnectionState.DISCONNECTED || connectionManager.connectionState == ConnectionState.BACKEND_NOT_FOUND) {
+                    // Try discovering in background
+                    connectionManager.startDiscovery()
+                }
                 delay(6000)
             }
         }
@@ -175,8 +227,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     Triple(loaded, terms, log)
                 }
             }.onSuccess { (loaded, terms, log) ->
-                backendOnline = true
-                backendMessage = "Live: ${loaded.size} cases from detection engine"
                 if (loaded.isNotEmpty()) {
                     cases.clear()
                     cases.addAll(loaded)
@@ -190,8 +240,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     auditLog.addAll(log)
                 }
             }.onFailure {
-                backendOnline = false
-                backendMessage = "Offline Mode • Ready with 5 Active Defense Cases"
                 if (cases.isEmpty()) {
                     cases.addAll(MockDataRepository.cases)
                 }
@@ -203,6 +251,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    fun retryDiscovery() {
+        connectionManager.startDiscovery()
+    }
+
+    fun setManualHost(host: String, port: Int = 8080) {
+        connectionManager.setManualHost(host, port)
+    }
+
+    fun showNetworkDialog() {
+        showNetworkConfigDialog = true
+    }
+
+    fun dismissNetworkDialog() {
+        showNetworkConfigDialog = false
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -321,8 +385,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  NAVIGATION (bottom tabs only — case detail is a pushed screen,
-    //  handled by NavGraph, not tab state)
+    //  NAVIGATION
     // ═══════════════════════════════════════════════════════════════════
 
     fun selectTab(index: Int) {
@@ -346,8 +409,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    //  CASE DETAIL ACTIONS — every action operates on the specific case
-    //  passed in (by ncrpId), never a hardcoded/global one.
+    //  CASE DETAIL ACTIONS
     // ═══════════════════════════════════════════════════════════════════
 
     fun showApproveConfirmation() {
@@ -438,13 +500,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun simulateWithdraw(ncrpId: String) {
         runAction(ncrpId, "simulate_withdraw", ActionStatus.EN_ROUTE)
         showToast("Cash-out attempt recorded for police.")
-    }
-
-    private fun nearestPoliceUnit(case: ComplaintTicket): String {
-        // In production this comes from the jurisdiction lookup for the
-        // predicted terminal's location; kept simple for the prototype.
-        val area = case.targetTerminal.address.substringAfter(",").trim()
-        return "$area Police Station"
     }
 
     // ═══════════════════════════════════════════════════════════════════

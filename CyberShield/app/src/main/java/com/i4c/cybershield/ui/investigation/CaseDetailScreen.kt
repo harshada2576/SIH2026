@@ -358,16 +358,16 @@ private fun CaseOverviewCard(case: ComplaintTicket) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.MoneyOff, label = "Amount at Risk",
+                DetailMetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.MoneyOff, label = "Amount at Risk",
                     value = case.reportedLoss, valueColor = AlertOrange)
-                MetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Timer, label = "Reported",
+                DetailMetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Timer, label = "Reported",
                     value = case.timeElapsed, valueColor = WarningYellow)
             }
             Spacer(modifier = Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Place, label = "Predicted Cash-Out",
+                DetailMetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Place, label = "Predicted Cash-Out",
                     value = case.targetTerminal.id, valueColor = TextOffWhite)
-                MetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Schedule, label = "Expected Window",
+                DetailMetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Schedule, label = "Expected Window",
                     value = case.targetTerminal.cashoutWindow, valueColor = TextOffWhite)
             }
         }
@@ -798,7 +798,7 @@ fun StatusBadge(status: ActionStatus) {
 }
 
 @Composable
-private fun MetricChip(
+private fun DetailMetricChip(
     modifier: Modifier = Modifier,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,

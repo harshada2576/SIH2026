@@ -1,16 +1,17 @@
 package com.i4c.cybershield.data
 
 import android.content.Context
-import com.i4c.cybershield.R
 import com.i4c.cybershield.model.*
+import com.i4c.cybershield.net.NetworkConnectionManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 
-class CyberShieldApi(context: Context) {
-    private val baseUrl: String = context.getString(R.string.api_base_url).trimEnd('/')
+class CyberShieldApi(private val context: Context) {
+    private val connectionManager get() = NetworkConnectionManager.getInstance(context)
+    val baseUrl: String get() = connectionManager.baseUrl.trimEnd('/')
 
     fun health(): JSONObject = get("/health")
 

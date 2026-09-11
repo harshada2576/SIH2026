@@ -17,24 +17,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.i4c.cybershield.MainViewModel
-import com.i4c.cybershield.model.UserRole
+import com.i4c.cybershield.net.ConnectionState
 import com.i4c.cybershield.ui.activity.ActivityScreen
 import com.i4c.cybershield.ui.cases.CasesScreen
 import com.i4c.cybershield.ui.radar.RadarMapScreen
 import com.i4c.cybershield.ui.theme.*
-
-// ═══════════════════════════════════════════════════════════════════════
-//  MAIN SCREEN – 3-Tab Scaffold (Map / Cases / Activity)
-//
-//  Cases is the default landing tab: it's the investigator's actual work
-//  queue. Tapping any case (here, or a marker on the Map) opens that
-//  SPECIFIC case's detail screen via onOpenCase — never a fixed example.
-// ═══════════════════════════════════════════════════════════════════════
 
 data class TabItem(
     val index: Int,
@@ -56,6 +50,14 @@ fun MainScreen(
 ) {
     Scaffold(
         containerColor = BgDeepSlate,
+        topBar = {
+            NetworkStatusBar(
+                connectionState = viewModel.connectionState,
+                statusMessage = viewModel.backendMessage,
+                serverUrl = viewModel.currentServerUrl,
+                onTap = { viewModel.showNetworkDialog() }
+            )
+        },
         bottomBar = {
             CyberShieldBottomBar(
                 currentTab = viewModel.currentTab,
@@ -119,6 +121,192 @@ fun MainScreen(
             }
         }
     }
+
+    if (viewModel.showNetworkConfigDialog) {
+        NetworkConfigDialog(
+            currentState = viewModel.connectionState,
+            currentUrl = viewModel.currentServerUrl,
+            statusMessage = viewModel.backendMessage,
+            onDismiss = viewModel::dismissNetworkDialog,
+            onRetryDiscovery = {
+                viewModel.retryDiscovery()
+                viewModel.dismissNetworkDialog()
+            },
+            onSaveManual = { host, port ->
+                viewModel.setManualHost(host, port)
+                viewModel.dismissNetworkDialog()
+            }
+        )
+    }
+}
+
+// ─── Network Status Header Bar ──────────────────────────────────────────
+
+@Composable
+private fun NetworkStatusBar(
+    connectionState: ConnectionState,
+    statusMessage: String,
+    serverUrl: String,
+    onTap: () -> Unit
+) {
+    val (dotColor, stateText) = when (connectionState) {
+        ConnectionState.CONNECTED -> SuccessGreen to "LIVE BACKEND"
+        ConnectionState.DISCOVERING -> WarningYellow to "DISCOVERING BACKEND..."
+        ConnectionState.RECONNECTING -> AlertOrange to "RECONNECTING..."
+        ConnectionState.BACKEND_NOT_FOUND, ConnectionState.DISCONNECTED -> BorderTaupe to "OFFLINE MODE"
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onTap() },
+        color = BgDeepSlate
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .statusBarsPadding(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(dotColor)
+                )
+                Text(
+                    text = stateText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = dotColor,
+                    letterSpacing = 1.sp
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = if (connectionState == ConnectionState.CONNECTED) serverUrl.removePrefix("http://") else "Tap to configure",
+                    fontSize = 11.sp,
+                    color = BorderTaupe
+                )
+                Icon(
+                    imageVector = Icons.Default.Wifi,
+                    contentDescription = null,
+                    tint = dotColor,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+    }
+}
+
+// ─── Network Configuration Modal ───────────────────────────────────────
+
+@Composable
+private fun NetworkConfigDialog(
+    currentState: ConnectionState,
+    currentUrl: String,
+    statusMessage: String,
+    onDismiss: () -> Unit,
+    onRetryDiscovery: () -> Unit,
+    onSaveManual: (host: String, port: Int) -> Unit
+) {
+    var manualIp by remember { mutableStateOf("") }
+    var manualPort by remember { mutableStateOf("8080") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceCharcoal,
+        titleContentColor = TextOffWhite,
+        textContentColor = BorderTaupe,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(Icons.Default.SettingsEthernet, contentDescription = null, tint = AlertOrange, modifier = Modifier.size(24.dp))
+                Text("Backend LAN Discovery", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "CyberShield dynamically discovers the SIH26184 backend across Wi-Fi/Hotspots using native mDNS & UDP broadcast.",
+                    fontSize = 12.sp, color = BorderTaupe, lineHeight = 16.sp
+                )
+
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = BgDeepSlate)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Status: ${currentState.name}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextOffWhite)
+                        Text(statusMessage, fontSize = 11.sp, color = BorderTaupe)
+                        if (currentState == ConnectionState.CONNECTED) {
+                            Text("Active URL: $currentUrl", fontSize = 11.sp, color = SuccessGreen, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = onRetryDiscovery,
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AlertOrange, contentColor = TextOffWhite)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Auto-Discover on Hotspot / Wi-Fi", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                Divider(color = BorderTaupe.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 4.dp))
+
+                Text("Manual Host Override (Optional):", fontSize = 11.sp, color = TextOffWhite, fontWeight = FontWeight.SemiBold)
+
+                OutlinedTextField(
+                    value = manualIp,
+                    onValueChange = { manualIp = it },
+                    placeholder = { Text("e.g. 192.168.43.120", fontSize = 12.sp, color = BorderTaupe.copy(alpha = 0.5f)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = TextOffWhite,
+                        unfocusedTextColor = TextOffWhite,
+                        focusedBorderColor = AlertOrange,
+                        unfocusedBorderColor = BorderTaupe.copy(alpha = 0.3f)
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            if (manualIp.isNotBlank()) {
+                Button(
+                    onClick = {
+                        val portInt = manualPort.toIntOrNull() ?: 8080
+                        onSaveManual(manualIp.trim(), portInt)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MediumCyan, contentColor = BgDeepSlate)
+                ) {
+                    Text("Connect to IP", fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = BorderTaupe)
+            }
+        },
+        shape = RoundedCornerShape(16.dp)
+    )
 }
 
 // ─── Custom Bottom Navigation Bar ──────────────────────────────────────

@@ -52,12 +52,13 @@ print_help() {
     echo "Usage: ./run.sh [COMMAND]"
     echo ""
     echo "Commands:"
-    echo "  app             Build, install, and launch the CyberShield Android App on connected USB phone (Default)"
-    echo "  backend         Start mock Bank & NCRP/I4C APIs and run Phase 2 E2E Demo"
-    echo "  demo            Run full Phase 2 E2E demo scenario in terminal"
+    echo "  app             Build, install, and launch the CyberShield Android App on connected phone (Default)"
+    echo "  server          Start complete backend stack (Mock APIs + FastAPI + mDNS/UDP Discovery on 0.0.0.0:8080)"
+    echo "  backend         Alias for 'server'"
+    echo "  demo            Run full E2E demo scenario in terminal and dispatch live alert to phones"
     echo "  pipeline        Start local Kafka (Docker), pipeline consumer, and detection scorer"
-    echo "  test            Run all pytest verification and integration tests"
-    echo "  all             Build & launch Android app + run background mock services and demo"
+    echo "  test            Run all pytest verification, discovery, and integration tests"
+    echo "  all             Build & launch Android app + run background backend server stack"
     echo "  help            Show this help menu"
     echo ""
 }
@@ -76,8 +77,8 @@ check_device() {
         adb devices
         echo ""
         log_warn "If 'unauthorized', please unlock your phone and tap 'Allow USB debugging'."
-        log_warn "Waiting up to 10s for device authorization..."
-        for i in {1..10}; do
+        log_warn "Waiting up to 5s for device authorization..."
+        for i in {1..5}; do
             if [ "$(adb get-state 2>/dev/null)" = "device" ]; then
                 DEVICE_STATE="device"
                 break
@@ -91,7 +92,7 @@ check_device() {
         log_success "Connected device detected: ${BOLD}$DEVICE_MODEL${NC}"
         return 0
     else
-        log_error "No authorized Android device connected. Connect your phone via USB with USB Debugging enabled."
+        log_warn "No authorized Android device connected over USB."
         return 1
     fi
 }
@@ -119,22 +120,24 @@ build_and_launch_android() {
         adb shell am start -n "com.i4c.cybershield/.MainActivity"
         log_success "🚀 CyberShield is now running on your mobile device!"
     else
-        log_warn "APK build succeeded, but could not install to device because no authorized device was found."
+        log_info "Debug APK is ready for deployment: $APK_PATH"
+        log_info "To install on any Android phone, run: adb install -r $APK_PATH"
     fi
 }
 
-run_mock_services() {
+run_server() {
     log_info "Starting Mock Bank API (port 8001) and Mock NCRP/I4C API (port 8002)..."
     $PYTHON -m mock_services.bank_api.server &
     PID_BANK=$!
     $PYTHON -m mock_services.ncrp_i4c_api.server &
     PID_NCRP=$!
 
-    # Trap to kill background services on exit
     trap "kill $PID_BANK $PID_NCRP 2>/dev/null || true" EXIT
 
     sleep 1
     log_success "Mock services active (Bank API: 8001, NCRP/I4C: 8002)"
+    log_info "Starting CyberShield FastAPI, WebSocket & Discovery server on 0.0.0.0:8080..."
+    $PYTHON -m api.server 8080
 }
 
 run_demo() {
@@ -171,10 +174,9 @@ case "$CMD" in
         print_header
         build_and_launch_android
         ;;
-    backend)
+    server|backend)
         print_header
-        run_mock_services
-        run_demo
+        run_server
         ;;
     demo)
         print_header
@@ -192,9 +194,8 @@ case "$CMD" in
         print_header
         build_and_launch_android
         echo ""
-        log_info "Starting backend mock services & running Phase 2 demo..."
-        run_mock_services
-        run_demo
+        log_info "Starting complete backend stack & discovery..."
+        run_server
         ;;
     help|--help|-h)
         print_help
