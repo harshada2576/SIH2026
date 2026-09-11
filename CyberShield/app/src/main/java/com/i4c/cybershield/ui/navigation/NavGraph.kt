@@ -71,6 +71,8 @@ fun CyberShieldNavGraph(
             AuthScreen(
                 email = viewModel.email,
                 emailError = viewModel.emailError,
+                password = viewModel.password,
+                passwordError = viewModel.passwordError,
                 otpInput = viewModel.otpInput,
                 otpError = viewModel.otpError,
                 otpRequested = viewModel.otpRequested,
@@ -79,7 +81,10 @@ fun CyberShieldNavGraph(
                 lockoutTimeRemaining = viewModel.lockoutTimeRemaining,
                 otpCountdownSeconds = viewModel.otpCountdownSeconds,
                 canResendOtp = viewModel.canResendOtp,
+                selectedRole = viewModel.userRole,
                 onEmailChanged = viewModel::onEmailChanged,
+                onPasswordChanged = viewModel::onPasswordChanged,
+                onRoleSelected = viewModel::selectRole,
                 onOtpChanged = viewModel::onOtpChanged,
                 onRequestOtp = viewModel::requestOtp,
                 onVerifyOtp = {
@@ -117,6 +122,7 @@ fun CyberShieldNavGraph(
             } else {
                 CaseDetailScreen(
                     case = case,
+                    userRole = viewModel.userRole,
                     showApproveDialog = viewModel.showApproveDialog,
                     showBankHoldDialog = viewModel.showBankHoldDialog,
                     onBack = { navController.popBackStack() },
@@ -135,7 +141,13 @@ fun CyberShieldNavGraph(
                     onDismissFalsePositive = {
                         viewModel.dismissFalsePositive(ncrpId)
                         navController.popBackStack()
-                    }
+                    },
+                    onReleaseAfterConfirmation = {
+                        viewModel.releaseAfterCustomerConfirmation(ncrpId)
+                        navController.popBackStack()
+                    },
+                    onFileComplaint = { viewModel.fileComplaint(ncrpId) },
+                    onSimulateWithdraw = { viewModel.simulateWithdraw(ncrpId) }
                 )
             }
         }

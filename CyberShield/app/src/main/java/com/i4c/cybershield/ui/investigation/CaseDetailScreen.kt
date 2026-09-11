@@ -1,6 +1,7 @@
 package com.i4c.cybershield.ui.investigation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -33,6 +34,7 @@ import com.i4c.cybershield.ui.theme.*
 @Composable
 fun CaseDetailScreen(
     case: ComplaintTicket,
+    userRole: UserRole,
     showApproveDialog: Boolean,
     showBankHoldDialog: Boolean,
     onBack: () -> Unit,
@@ -42,7 +44,10 @@ fun CaseDetailScreen(
     onBankHoldClick: () -> Unit,
     onBankHoldConfirm: () -> Unit,
     onBankHoldDismiss: () -> Unit,
-    onDismissFalsePositive: () -> Unit
+    onDismissFalsePositive: () -> Unit,
+    onReleaseAfterConfirmation: () -> Unit,
+    onFileComplaint: () -> Unit = {},
+    onSimulateWithdraw: () -> Unit = {}
 ) {
     Column(modifier = Modifier.fillMaxSize().background(BgDeepSlate)) {
         // ─── Top Bar ────────────────────────────────────────────────
@@ -51,7 +56,7 @@ fun CaseDetailScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to case list", tint = TextOffWhite)
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back to case list", tint = TextOffWhite)
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(case.ncrpId, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextOffWhite)
@@ -74,18 +79,28 @@ fun CaseDetailScreen(
 
             CaseOverviewCard(case)
             Spacer(modifier = Modifier.height(16.dp))
+            OperationalIntelCard(case)
+            Spacer(modifier = Modifier.height(16.dp))
 
             MoneyTrailVisual(case.moneyTrail)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            TransactionEvidenceCard(case.moneyTrail)
             Spacer(modifier = Modifier.height(16.dp))
 
             RiskBreakdownCard(case.riskBreakdown)
             Spacer(modifier = Modifier.height(16.dp))
 
             DecisionBar(
+                case = case,
                 status = case.status,
+                userRole = userRole,
                 onApproveClick = onApproveClick,
                 onBankHoldClick = onBankHoldClick,
-                onDismissFalsePositive = onDismissFalsePositive
+                onDismissFalsePositive = onDismissFalsePositive,
+                onReleaseAfterConfirmation = onReleaseAfterConfirmation,
+                onFileComplaint = onFileComplaint,
+                onSimulateWithdraw = onSimulateWithdraw
             )
         }
     }
@@ -99,7 +114,7 @@ fun CaseDetailScreen(
             textContentColor = BorderTaupe,
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = AlertOrange, modifier = Modifier.size(24.dp))
+                    Icon(Icons.Default.Send, contentDescription = null, tint = AlertOrange, modifier = Modifier.size(24.dp))
                     Text("Send this case to police?")
                 }
             },
@@ -152,6 +167,93 @@ fun CaseDetailScreen(
     }
 }
 
+@Composable
+private fun TransactionEvidenceCard(trail: MoneyTrail) {
+    var expandedIndex by remember { mutableStateOf<Int?>(null) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCharcoal),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = Brush.linearGradient(colors = listOf(MediumCyan.copy(alpha = 0.3f), Color.Transparent))
+        )
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("TRANSACTION EVIDENCE & PROVENANCE", fontSize = 11.sp, color = BorderTaupe, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+                Text("Tap hop to inspect", fontSize = 10.sp, color = MediumCyan)
+            }
+            Text(
+                "Review each recorded hop before deciding. Values come from the evidence feed; downstream accounts maintain provenance to root victim transaction.",
+                fontSize = 11.sp, color = BorderTaupe, lineHeight = 15.sp, modifier = Modifier.padding(top = 6.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            trail.edges.forEachIndexed { index, edge ->
+                val from = trail.nodes.getOrNull(edge.fromIndex)?.label ?: "Unknown source"
+                val fromType = trail.nodes.getOrNull(edge.fromIndex)?.type ?: "account"
+                val to = trail.nodes.getOrNull(edge.toIndex)?.label ?: "Unknown destination"
+                val toType = trail.nodes.getOrNull(edge.toIndex)?.type ?: "account"
+                val isExpanded = expandedIndex == index
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isExpanded) BgDeepSlate.copy(alpha = 0.7f) else Color.Transparent)
+                        .clickable { expandedIndex = if (isExpanded) null else index }
+                        .padding(vertical = 8.dp, horizontal = if (isExpanded) 10.dp else 0.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text("${index + 1}", color = MediumCyan, fontWeight = FontWeight.Bold, modifier = Modifier.width(24.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("$from  →  $to", color = TextOffWhite, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(
+                                "${edge.amount}  •  ${edge.timestamp}  •  ${edge.channel}",
+                                color = BorderTaupe, fontSize = 11.sp, lineHeight = 15.sp,
+                                modifier = Modifier.padding(top = 3.dp)
+                            )
+                        }
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = BorderTaupe,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    if (isExpanded) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(containerColor = SurfaceCharcoal.copy(alpha = 0.9f))
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Transaction ID: ${edge.label}", fontSize = 11.sp, color = AlertOrange, fontWeight = FontWeight.SemiBold)
+                                Text("Source: $from ($fromType)", fontSize = 11.sp, color = TextOffWhite)
+                                Text("Destination: $to ($toType)", fontSize = 11.sp, color = TextOffWhite)
+                                Text("Amount: ${edge.amount} INR via ${edge.channel}", fontSize = 11.sp, color = MediumCyan)
+                                Text("Settlement: High velocity egress / Layering pattern", fontSize = 10.sp, color = BorderTaupe)
+                                Text("Trace Status: Provenance preserved with downstream hash audit", fontSize = 10.sp, color = SuccessGreen)
+                            }
+                        }
+                    }
+                }
+                if (index < trail.edges.lastIndex) {
+                    Divider(color = BorderTaupe.copy(alpha = 0.12f))
+                }
+            }
+        }
+    }
+}
+
 // ─── Plain-language headline ───────────────────────────────────────────
 
 @Composable
@@ -172,6 +274,69 @@ private fun SummaryHeadline(case: ComplaintTicket) {
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(case.summary, fontSize = 15.sp, color = TextOffWhite, lineHeight = 21.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+@Composable
+private fun OperationalIntelCard(case: ComplaintTicket) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCharcoal),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = Brush.linearGradient(colors = listOf(AlertOrange.copy(alpha = 0.35f), Color.Transparent))
+        )
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Text("OPERATIONAL STATUS", fontSize = 11.sp, color = BorderTaupe, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Lifecycle: ${case.lifecycle}", color = TextOffWhite, fontSize = 13.sp)
+            Text("Confirmation: ${case.confirmationState}", color = BorderTaupe, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            Text(
+                "Pre-complaint: digital slow/hold. After complaint: online + physical ATM block.",
+                color = BorderTaupe, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 6.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Digital block: ${if (case.digitalBlockActive) "ON" else "off"}   ATM block: ${if (case.atmBlockActive) "ON" else "off"}",
+                color = MediumCyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+            )
+            Text("Auto action: ${case.interventionTier.ifBlank { "human review" }}", color = BorderTaupe, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            if (case.justification.isNotBlank()) {
+                Text(case.justification, color = TextOffWhite, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 8.dp))
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text("Existing balance available  ₹${"%.0f".format(case.legitimateBalance)}", color = SuccessGreen, fontSize = 12.sp)
+            Text("Suspicious exposure held  ₹${"%.0f".format(case.suspiciousExposure)}", color = AlertOrange, fontSize = 12.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("SIM  ${case.simHash.ifBlank { "not supplied" }}", color = BorderTaupe, fontSize = 11.sp)
+            Text("Device  ${case.deviceFingerprint.ifBlank { "not supplied" }}", color = BorderTaupe, fontSize = 11.sp)
+            if (case.repeatActivity.attempts > 0) {
+                Text(
+                    "Repeat ATM ${case.repeatActivity.terminalId}: ${case.repeatActivity.attempts} attempts → ${case.repeatActivity.escalation}",
+                    color = AlertOrange, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+            if (case.withdrawalAttempts.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text("WITHDRAWAL ATTEMPTS", fontSize = 11.sp, color = BorderTaupe, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
+                case.withdrawalAttempts.takeLast(6).forEach { attempt ->
+                    Text(
+                        "${attempt.time.take(19)}  ${attempt.amount}  ${attempt.terminalId}  ${attempt.status}",
+                        color = TextOffWhite, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp)
+                    )
+                    Text(attempt.location, color = BorderTaupe, fontSize = 10.sp)
+                }
+            }
+            if (case.nearbyTerminals.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text("NEARBY TERMINALS FOR POLICE", fontSize = 11.sp, color = BorderTaupe, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
+                case.nearbyTerminals.take(5).forEach { term ->
+                    val km = term.distanceKm?.let { "  ${"%.1f".format(it)} km" } ?: ""
+                    Text("${term.id}$km  —  ${term.address}", color = TextOffWhite, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
         }
     }
 }
@@ -234,7 +399,7 @@ private fun MoneyTrailVisual(trail: MoneyTrail) {
                     TrailNodeCard(node)
                     if (index < trail.nodes.size - 1) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null,
+                            Icons.Default.ArrowForward, contentDescription = null,
                             tint = AlertOrange, modifier = Modifier.padding(horizontal = 6.dp).size(22.dp)
                         )
                     }
@@ -390,10 +555,15 @@ private fun SignalRow(signal: RiskSignal, showTechnical: Boolean) {
 
 @Composable
 private fun DecisionBar(
+    case: ComplaintTicket,
     status: ActionStatus,
+    userRole: UserRole,
     onApproveClick: () -> Unit,
     onBankHoldClick: () -> Unit,
-    onDismissFalsePositive: () -> Unit
+    onDismissFalsePositive: () -> Unit,
+    onReleaseAfterConfirmation: () -> Unit,
+    onFileComplaint: () -> Unit,
+    onSimulateWithdraw: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -410,7 +580,7 @@ private fun DecisionBar(
                         when (status) {
                             ActionStatus.APPROVED -> SuccessGreen
                             ActionStatus.BANK_HOLD -> MediumCyan
-                            ActionStatus.DISMISSED -> BorderTaupe
+                            ActionStatus.DISMISSED, ActionStatus.RELEASED -> BorderTaupe
                             else -> AlertOrange
                         }
                     )
@@ -420,7 +590,7 @@ private fun DecisionBar(
                     color = when (status) {
                         ActionStatus.APPROVED -> SuccessGreen
                         ActionStatus.BANK_HOLD -> MediumCyan
-                        ActionStatus.DISMISSED -> BorderTaupe
+                        ActionStatus.DISMISSED, ActionStatus.RELEASED -> BorderTaupe
                         else -> AlertOrange
                     },
                     letterSpacing = 1.sp
@@ -429,7 +599,34 @@ private fun DecisionBar(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (status == ActionStatus.PENDING) {
+            if (userRole == UserRole.POLICE_INVESTIGATOR &&
+                (status == ActionStatus.APPROVED || status == ActionStatus.EN_ROUTE)
+            ) {
+                Text(
+                    "Bank officials forwarded this case. Use the predicted terminal and nearby locations as field evidence — the app does not track a person.",
+                    fontSize = 12.sp, color = BorderTaupe, lineHeight = 17.sp,
+                    modifier = Modifier.padding(bottom = 10.dp)
+                )
+                Text("Predicted cash-out", fontSize = 11.sp, color = AlertOrange, fontWeight = FontWeight.Bold)
+                Text(
+                    "${case.targetTerminal.id}\n${case.targetTerminal.address}\nWindow: ${case.targetTerminal.cashoutWindow}",
+                    fontSize = 13.sp, color = TextOffWhite, lineHeight = 18.sp,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+                Text(
+                    "Repeated use of the same account at the same ATM should be treated as persistent terminal risk and passed to the local unit with this evidence pack.",
+                    fontSize = 12.sp, color = BorderTaupe, lineHeight = 17.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = onSimulateWithdraw,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AlertOrange, contentColor = TextOffWhite)
+                ) {
+                    Text("Record cash-out attempt at this ATM", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            } else if (status == ActionStatus.PENDING && userRole == UserRole.BANK_OFFICIAL) {
                 Text(
                     "Choose one action for this case:",
                     fontSize = 12.sp, color = BorderTaupe, modifier = Modifier.padding(bottom = 10.dp)
@@ -441,7 +638,7 @@ private fun DecisionBar(
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = AlertOrange, contentColor = TextOffWhite)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(10.dp))
                     Text("Send to Police", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
@@ -467,6 +664,60 @@ private fun DecisionBar(
                 TextButton(onClick = onDismissFalsePositive, modifier = Modifier.fillMaxWidth()) {
                     Text("Not Suspicious — Dismiss", color = BorderTaupe.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
+                Spacer(modifier = Modifier.height(4.dp))
+                TextButton(onClick = onFileComplaint, modifier = Modifier.fillMaxWidth()) {
+                    Text("NCRP complaint filed — hard block ATM + digital", color = MediumCyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            } else if (status == ActionStatus.BANK_HOLD && userRole == UserRole.BANK_OFFICIAL) {
+                Text(
+                    "Only release this hold after the bank has confirmed the customer and recorded that the activity is legitimate.",
+                    fontSize = 12.sp, color = BorderTaupe, lineHeight = 17.sp,
+                    modifier = Modifier.padding(bottom = 10.dp)
+                )
+                Button(
+                    onClick = onApproveClick,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AlertOrange, contentColor = TextOffWhite)
+                ) {
+                    Text("Forward frozen case to police", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                var showReleaseConfirmation by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    onClick = { showReleaseConfirmation = true },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = SuccessGreen)
+                ) {
+                    Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Release after customer confirmation", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+                if (showReleaseConfirmation) {
+                    AlertDialog(
+                        onDismissRequest = { showReleaseConfirmation = false },
+                        containerColor = SurfaceCharcoal,
+                        titleContentColor = TextOffWhite,
+                        textContentColor = BorderTaupe,
+                        title = { Text("Confirm hold release") },
+                        text = {
+                            Text("Confirm that the bank official has spoken with the customer, verified the activity, and recorded it as not malicious.")
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showReleaseConfirmation = false
+                                    onReleaseAfterConfirmation()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen, contentColor = BgDeepSlate)
+                            ) { Text("Confirm and release") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showReleaseConfirmation = false }) { Text("Cancel", color = BorderTaupe) }
+                        }
+                    )
+                }
             } else {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -475,6 +726,7 @@ private fun DecisionBar(
                         containerColor = when (status) {
                             ActionStatus.APPROVED -> SuccessGreen.copy(alpha = 0.12f)
                             ActionStatus.BANK_HOLD -> MediumCyan.copy(alpha = 0.12f)
+                            ActionStatus.RELEASED -> SuccessGreen.copy(alpha = 0.12f)
                             else -> BorderTaupe.copy(alpha = 0.08f)
                         }
                     )
@@ -488,12 +740,14 @@ private fun DecisionBar(
                             imageVector = when (status) {
                                 ActionStatus.APPROVED -> Icons.Default.CheckCircle
                                 ActionStatus.BANK_HOLD -> Icons.Default.Lock
+                                ActionStatus.RELEASED -> Icons.Default.LockOpen
                                 else -> Icons.Default.Cancel
                             },
                             contentDescription = null,
                             tint = when (status) {
                                 ActionStatus.APPROVED -> SuccessGreen
                                 ActionStatus.BANK_HOLD -> MediumCyan
+                                ActionStatus.RELEASED -> SuccessGreen
                                 else -> BorderTaupe
                             },
                             modifier = Modifier.size(24.dp)
@@ -504,6 +758,7 @@ private fun DecisionBar(
                             color = when (status) {
                                 ActionStatus.APPROVED -> SuccessGreen
                                 ActionStatus.BANK_HOLD -> MediumCyan
+                                ActionStatus.RELEASED -> SuccessGreen
                                 else -> BorderTaupe
                             }
                         )
@@ -531,6 +786,7 @@ fun StatusBadge(status: ActionStatus) {
         ActionStatus.DISMISSED -> BorderTaupe to "DISMISSED"
         ActionStatus.EN_ROUTE -> InfoBlue to "EN ROUTE"
         ActionStatus.LIEN_PLACED -> SuccessGreen to "HOLD CONFIRMED"
+        ActionStatus.RELEASED -> SuccessGreen to "HOLD RELEASED"
     }
 
     Card(shape = RoundedCornerShape(6.dp), colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.15f))) {

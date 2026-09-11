@@ -79,12 +79,14 @@ signing-config.json
 *.keystore
 
 # ==========================================
-# Data Volumes & Notebooks
+# Data Volumes & Temporary Test Artifacts
 # ==========================================
 .ipynb_checkpoints/
 .kafka-data/
 .zookeeper-data/
 kafka-data/
 zookeeper-data/
-data/output/
 *.db
+data/output/*.db
+data/output/audit_ledger_DEMO.jsonl
+data/output/audit_keys_DEMO/

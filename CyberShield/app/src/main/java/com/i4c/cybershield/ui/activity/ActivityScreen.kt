@@ -88,7 +88,7 @@ private fun AuditLogCard(entry: AuditLogEntry) {
                     .background(
                         when (entry.status) {
                             ActionStatus.EN_ROUTE -> InfoBlue
-                            ActionStatus.LIEN_PLACED, ActionStatus.APPROVED -> SuccessGreen
+                            ActionStatus.LIEN_PLACED, ActionStatus.APPROVED, ActionStatus.RELEASED -> SuccessGreen
                             else -> BorderTaupe
                         }
                     )

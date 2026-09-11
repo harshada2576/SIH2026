@@ -37,16 +37,24 @@ private enum class QueueFilter(val label: String) {
     RESOLVED("Resolved")
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CasesScreen(
     allCases: List<ComplaintTicket>,
     summaries: List<DispatchSummary>,
+    userRole: UserRole,
+    backendMessage: String = "",
+    backendOnline: Boolean = true,
     onCaseSelected: (String) -> Unit
 ) {
     var filter by remember { mutableStateOf(QueueFilter.PENDING) }
 
     val visibleCases = when (filter) {
-        QueueFilter.PENDING -> allCases.filter { it.status == ActionStatus.PENDING }
+        QueueFilter.PENDING -> if (userRole == UserRole.BANK_OFFICIAL) {
+            allCases.filter { it.status == ActionStatus.PENDING }
+        } else {
+            allCases.filter { it.status == ActionStatus.APPROVED || it.status == ActionStatus.EN_ROUTE }
+        }
         QueueFilter.RESOLVED -> allCases.filterNot { it.status == ActionStatus.PENDING }
         QueueFilter.ALL -> allCases
     }
@@ -61,15 +69,21 @@ fun CasesScreen(
     ) {
         item {
             Text(
-                text = "Suspicious Cases",
+                text = if (userRole == UserRole.BANK_OFFICIAL) "Bank review queue" else "Forwarded police cases",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextOffWhite
             )
             Text(
-                text = "Every money-flow the system has flagged for human review.",
+                text = backendMessage.ifBlank {
+                    if (userRole == UserRole.BANK_OFFICIAL) {
+                        "Inspect evidence before placing a provisional hold or forwarding a case."
+                    } else {
+                        "Cases forwarded by bank officials with location and money-trail evidence."
+                    }
+                },
                 fontSize = 13.sp,
-                color = BorderTaupe,
+                color = if (backendOnline) BorderTaupe else AlertOrange,
                 modifier = Modifier.padding(top = 2.dp)
             )
         }
@@ -97,7 +111,14 @@ fun CasesScreen(
                     FilterChip(
                         selected = isSelected,
                         onClick = { filter = f },
-                        label = { Text(f.label, fontSize = 12.sp) },
+                        label = {
+                            Text(
+                                if (f == QueueFilter.PENDING && userRole == UserRole.POLICE_INVESTIGATOR)
+                                    "Forwarded"
+                                else f.label,
+                                fontSize = 12.sp
+                            )
+                        },
                         colors = FilterChipDefaults.filterChipColors(
                             containerColor = ChipUnselectedBg,
                             labelColor = BorderTaupe,
@@ -154,6 +175,7 @@ private fun SummaryCard(modifier: Modifier = Modifier, summary: DispatchSummary)
 
 // ─── Case Card (one row per suspicious case) ───────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CaseCard(case: ComplaintTicket, onClick: () -> Unit) {
     Card(

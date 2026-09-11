@@ -84,6 +84,12 @@ def get_kafka_producer(
     Creates and returns a standardized KafkaProducer instance with
     idempotent delivery defaults and explicit serialization.
     """
+    if not is_kafka_available(bootstrap_servers, timeout_sec=0.5):
+        raise ConnectionError(
+            f"Kafka broker not reachable at '{bootstrap_servers}'. "
+            f"For standalone hackathon demo, run: python -m scripts.run_hackathon"
+        )
+
     config: dict[str, Any] = {
         "bootstrap_servers": bootstrap_servers,
         "value_serializer": value_serializer,
@@ -111,6 +117,12 @@ def get_kafka_consumer(
     """
     Creates and returns a standardized KafkaConsumer instance subscribed to the given topics.
     """
+    if not is_kafka_available(bootstrap_servers, timeout_sec=0.5):
+        raise ConnectionError(
+            f"Kafka broker not reachable at '{bootstrap_servers}'. "
+            f"For standalone hackathon demo, run: python -m scripts.run_hackathon"
+        )
+
     config: dict[str, Any] = {
         "bootstrap_servers": bootstrap_servers,
         "auto_offset_reset": auto_offset_reset,

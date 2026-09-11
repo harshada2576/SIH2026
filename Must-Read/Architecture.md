@@ -157,12 +157,15 @@ SIH2026/
 │   │   ├── device_fingerprint_rule.py
 │   │   └── terminal_affinity_rule.py
 │   ├── alert_dispatcher.py        # publishes to "risk_alerts" topic + console/webhook stub
-│   ├── dashboard/
-│   │   ├── app.py                 # FastAPI serving alert data + static files
-│   │   ├── static/
-│   │   │   └── index.html         # Leaflet map + evidence side panel
-│   │   └── requirements.txt
 │   └── requirements.txt
+│
+├── CyberShield/                   # FRONTEND (ONLY 1 — Native Kotlin + Jetpack Compose)
+│   ├── app/src/main/java/com/i4c/cybershield/
+│   │   ├── MainActivity.kt
+│   │   ├── MainViewModel.kt
+│   │   ├── ui/ (auth, cases, investigation, radar, activity)
+│   │   └── data/ (CyberShieldApi, MockDataRepository)
+│   └── build.gradle.kts
 │
 ├── scripts/
 │   ├── run_all.sh                 # convenience script: docker compose up, then start all 3 pieces
@@ -230,10 +233,10 @@ SIH2026/
   "district_pincode": "201301"
 }
 ```
-Generate ~30-100 fake terminals spread across a few fake "districts" — this is what your Leaflet map plots.
+Generate ~30-100 fake terminals spread across a few fake "districts" — this is what the CyberShield Android MapLibre radar map plots.
 
 ### 6.4 Risk alert
-**Topic:** `risk_alerts` | **Produced by:** Workstream 3 | **Consumed by:** Alert Dispatcher + Dashboard
+**Topic:** `risk_alerts` | **Produced by:** Workstream 3 | **Consumed by:** Alert Dispatcher + CyberShield Android App
 
 ```json
 {
@@ -311,8 +314,8 @@ You are **not** building a system that ingests real GBs of data. You are buildin
 - `kafka-python` client: kafka-python.readthedocs.io
 - `confluent-kafka` client: docs.confluent.io/kafka-clients/python
 - `networkx` docs (graph algorithms, motif/subgraph tools): networkx.org/documentation
-- FastAPI docs: fastapi.tiangolo.com
-- Leaflet.js docs: leafletjs.com/reference.html
+- Android Jetpack Compose docs: developer.android.com/jetpack/compose
+- MapLibre Android SDK docs: maplibre.org/maplibre-native/docs/android/
 - AMLSim (IBM's synthetic AML transaction generator — the reference architecture your generator should take inspiration from for realistic fan-in/fan-out/layering patterns and power-law amount distributions): github.com/IBM/AMLSim
 - NCRP (National Cybercrime Reporting Portal) — cite as your real-world complaint-volume source: cybercrime.gov.in
 - RBI MuleHunter.AI — search "RBI MuleHunter.AI pilot" for the official press coverage; cite as the real, already-deployed account-detection precedent your system extends.

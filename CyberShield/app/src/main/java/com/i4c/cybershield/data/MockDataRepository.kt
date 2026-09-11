@@ -145,9 +145,9 @@ object MockDataRepository {
                     TrailNode(label = "Target\nATM-SBI-ND-042", type = "terminal", accountHint = "Sector 18")
                 ),
                 edges = listOf(
-                    TrailEdge(fromIndex = 0, toIndex = 1),
-                    TrailEdge(fromIndex = 1, toIndex = 2),
-                    TrailEdge(fromIndex = 2, toIndex = 3)
+                    TrailEdge(fromIndex = 0, toIndex = 1, amount = "₹50,00,000", timestamp = "10:02:14 AM"),
+                    TrailEdge(fromIndex = 1, toIndex = 2, amount = "₹49,60,000", timestamp = "10:04:01 AM"),
+                    TrailEdge(fromIndex = 2, toIndex = 3, amount = "Predicted cash-out", timestamp = "10:30–11:15 AM", channel = "ATM withdrawal")
                 )
             ),
             riskBreakdown = RiskBreakdown(
@@ -368,6 +368,6 @@ object MockDataRepository {
         ActionStatus.PENDING -> AlertOrange
         ActionStatus.APPROVED, ActionStatus.EN_ROUTE -> SuccessGreen
         ActionStatus.BANK_HOLD, ActionStatus.LIEN_PLACED -> MediumCyan
-        ActionStatus.DISMISSED -> BorderTaupe
+        ActionStatus.DISMISSED, ActionStatus.RELEASED -> BorderTaupe
     }
 }

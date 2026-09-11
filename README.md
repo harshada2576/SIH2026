@@ -26,11 +26,8 @@ Synthetic / Live Transactions
              ↓
      Kafka "risk_alerts" (with terminal coordinates: latitude, longitude)
              ↓
-   ┌──────────────────────────────────────────────┐
-   │                                              │
-   ▼                                              ▼
-CyberShield Native Android App        FastAPI Web Dashboard
-(MapLibre OSM + Jetpack Compose)     (Leaflet.js + Evidence Panel)
+  CyberShield Native Android App
+  (MapLibre OSM + Jetpack Compose)
 ```
 
 ---
@@ -61,7 +58,6 @@ CyberShield Native Android App        FastAPI Web Dashboard
 
 ### 4. Presentation & Visualization Layer
 * **CyberShield Android App (`CyberShield/`):** Native Android Kotlin application (Jetpack Compose, MapLibre OSM map, Investigation XAI money trails, Dispatch & Audit timelines, domain-restricted LEA authentication).
-* **FastAPI Web Dashboard (`detection/dashboard/`):** Lightweight web dashboard serving alert feeds, Leaflet.js interactive maps, and evidence panels.
 
 ---
 
@@ -96,13 +92,8 @@ python detection/scorer.py
 python data-generator/producer.py
 ```
 
-### D. Run Web Dashboard
-```bash
-python detection/dashboard/app.py
-# Open http://localhost:8000 in your browser
-```
 
-### E. Build CyberShield Android App
+### D. Build CyberShield Android App
 ```bash
 cd CyberShield
 ./gradlew assembleDebug

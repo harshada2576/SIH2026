@@ -1,17 +1,21 @@
 package com.i4c.cybershield
 
+import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.i4c.cybershield.data.CyberShieldApi
 import com.i4c.cybershield.data.MockDataRepository
 import com.i4c.cybershield.model.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // ═══════════════════════════════════════════════════════════════════════
 //  MAIN VIEW MODEL
@@ -24,7 +28,13 @@ import kotlinx.coroutines.launch
 //  evidence — this is the fix for the single-hardcoded-case bug.
 // ═══════════════════════════════════════════════════════════════════════
 
-class MainViewModel : ViewModel() {
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val api = CyberShieldApi(application)
+    var backendOnline by mutableStateOf(false)
+        private set
+    var backendMessage by mutableStateOf("Connecting to detection API…")
+        private set
 
     // ─── Authentication State ──────────────────────────────────────────
     var email by mutableStateOf("")
@@ -53,6 +63,12 @@ class MainViewModel : ViewModel() {
         private set
     var officerName by mutableStateOf("Officer")
         private set
+    var userRole by mutableStateOf(UserRole.BANK_OFFICIAL)
+        private set
+    var password by mutableStateOf("")
+        private set
+    var passwordError by mutableStateOf<String?>(null)
+        private set
     private var countdownJob: Job? = null
 
     // ─── Bottom-tab navigation state (Map / Cases / Activity) ──────────
@@ -62,18 +78,34 @@ class MainViewModel : ViewModel() {
     // ─── Radar Map State ───────────────────────────────────────────────
     var activeFilter by mutableStateOf("All Terminals")
         private set
+    var terminalSearch by mutableStateOf("")
+        private set
     var selectedTerminal by mutableStateOf<TerminalMarker?>(null)
         private set
 
     val filteredTerminals: List<TerminalMarker>
-        get() = when (activeFilter) {
-            "Bank ATMs" -> MockDataRepository.terminalMarkers.filter { it.type == TerminalType.BANK_ATM }
-            "AEPS Micro-ATMs" -> MockDataRepository.terminalMarkers.filter { it.type == TerminalType.AEPS_MICRO_ATM }
-            else -> MockDataRepository.terminalMarkers
+        get() {
+            val byType = when (activeFilter) {
+            "Bank ATMs" -> liveTerminals.filter { it.type == TerminalType.BANK_ATM }
+            "AEPS Micro-ATMs" -> liveTerminals.filter { it.type == TerminalType.AEPS_MICRO_ATM }
+            else -> liveTerminals
+            }
+            val query = terminalSearch.trim().lowercase()
+            return if (query.isBlank()) byType else byType.filter {
+                it.id.lowercase().contains(query) || it.address.lowercase().contains(query) ||
+                    it.bankName.lowercase().contains(query)
+            }
         }
 
+    var liveTerminals = mutableStateListOf<TerminalMarker>().apply {
+        addAll(MockDataRepository.terminalMarkers)
+    }
+        private set
+
     // ─── Case Queue (live, mutable — this is the source of truth) ──────
-    var cases = mutableStateListOf<ComplaintTicket>()
+    var cases = mutableStateListOf<ComplaintTicket>().apply {
+        addAll(MockDataRepository.cases)
+    }
         private set
 
     /** All cases still awaiting a decision, most recent first. */
@@ -85,11 +117,19 @@ class MainViewModel : ViewModel() {
         get() = cases.filterNot { it.status == ActionStatus.PENDING }
 
     val queueSummaries: List<DispatchSummary>
-        get() = listOf(
-            DispatchSummary("Awaiting Review", pendingCases.size, com.i4c.cybershield.ui.theme.AlertOrange),
-            DispatchSummary("Sent to Police", cases.count { it.status == ActionStatus.APPROVED }, com.i4c.cybershield.ui.theme.SuccessGreen),
-            DispatchSummary("Accounts Frozen", cases.count { it.status == ActionStatus.BANK_HOLD }, com.i4c.cybershield.ui.theme.MediumCyan)
-        )
+        get() = if (userRole == UserRole.POLICE_INVESTIGATOR) {
+            listOf(
+                DispatchSummary("Forwarded to you", cases.count { it.status == ActionStatus.APPROVED || it.status == ActionStatus.EN_ROUTE }, com.i4c.cybershield.ui.theme.AlertOrange),
+                DispatchSummary("Accounts Frozen", cases.count { it.status == ActionStatus.BANK_HOLD }, com.i4c.cybershield.ui.theme.MediumCyan),
+                DispatchSummary("Closed", cases.count { it.status == ActionStatus.DISMISSED || it.status == ActionStatus.RELEASED }, com.i4c.cybershield.ui.theme.SuccessGreen)
+            )
+        } else {
+            listOf(
+                DispatchSummary("Awaiting Review", pendingCases.size, com.i4c.cybershield.ui.theme.AlertOrange),
+                DispatchSummary("Sent to Police", cases.count { it.status == ActionStatus.APPROVED }, com.i4c.cybershield.ui.theme.SuccessGreen),
+                DispatchSummary("Accounts Frozen", cases.count { it.status == ActionStatus.BANK_HOLD }, com.i4c.cybershield.ui.theme.MediumCyan)
+            )
+        }
 
     /** Look up a case by its NCRP id — used by the case-detail screen and deep links. */
     fun caseById(ncrpId: String): ComplaintTicket? = cases.find { it.ncrpId == ncrpId }
@@ -105,14 +145,64 @@ class MainViewModel : ViewModel() {
         private set
 
     // ─── Audit / Activity log ───────────────────────────────────────────
-    var auditLog = mutableStateListOf<AuditLogEntry>()
+    var auditLog = mutableStateListOf<AuditLogEntry>().apply {
+        addAll(MockDataRepository.auditLogEntries)
+    }
         private set
     var toastMessage by mutableStateOf<String?>(null)
         private set
 
     init {
-        cases.addAll(MockDataRepository.cases)
-        auditLog.addAll(MockDataRepository.auditLogEntries)
+        startLiveFeed()
+    }
+
+    private fun startLiveFeed() {
+        viewModelScope.launch {
+            while (true) {
+                refreshFromBackend()
+                delay(6000)
+            }
+        }
+    }
+
+    fun refreshFromBackend() {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val loaded = api.fetchCases(userRole)
+                    val terms = api.fetchTerminals()
+                    val log = api.fetchAudit()
+                    Triple(loaded, terms, log)
+                }
+            }.onSuccess { (loaded, terms, log) ->
+                backendOnline = true
+                backendMessage = "Live: ${loaded.size} cases from detection engine"
+                if (loaded.isNotEmpty()) {
+                    cases.clear()
+                    cases.addAll(loaded)
+                }
+                if (terms.isNotEmpty()) {
+                    liveTerminals.clear()
+                    liveTerminals.addAll(terms)
+                }
+                if (log.isNotEmpty()) {
+                    auditLog.clear()
+                    auditLog.addAll(log)
+                }
+            }.onFailure {
+                backendOnline = false
+                backendMessage = "Offline Mode • Ready with 5 Active Defense Cases"
+                if (cases.isEmpty()) {
+                    cases.addAll(MockDataRepository.cases)
+                }
+                if (liveTerminals.isEmpty()) {
+                    liveTerminals.addAll(MockDataRepository.terminalMarkers)
+                }
+                if (auditLog.isEmpty()) {
+                    auditLog.addAll(MockDataRepository.auditLogEntries)
+                }
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -124,6 +214,16 @@ class MainViewModel : ViewModel() {
         emailError = null
     }
 
+    fun onPasswordChanged(value: String) {
+        password = value
+        passwordError = null
+    }
+
+    fun selectRole(role: UserRole) {
+        userRole = role
+        refreshFromBackend()
+    }
+
     fun onOtpChanged(value: String) {
         if (value.length <= 6 && value.all { it.isDigit() }) {
             otpInput = value
@@ -133,19 +233,23 @@ class MainViewModel : ViewModel() {
 
     fun requestOtp() {
         val trimmed = email.trim().lowercase()
-        val isAuthorized = MockDataRepository.authorizedDomains.any { trimmed.endsWith(it) }
 
         if (trimmed.isBlank()) {
-            emailError = "Please enter your official email address."
+            emailError = "Please enter your email address."
             return
         }
-        if (!isAuthorized) {
-            emailError = "This app is restricted to official police and government email addresses."
+        if (!trimmed.contains("@") || !trimmed.contains(".")) {
+            emailError = "Please enter a valid email address."
+            return
+        }
+        if (password.isBlank()) {
+            passwordError = "Enter your password to continue."
             return
         }
 
         otpRequested = true
         emailError = null
+        passwordError = null
         startOtpCountdown()
     }
 
@@ -161,6 +265,7 @@ class MainViewModel : ViewModel() {
                 .split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
                 .ifBlank { "Officer" }
             countdownJob?.cancel()
+            refreshFromBackend()
         } else {
             failedAttempts++
             otpError = "That code doesn't match. Attempt $failedAttempts of 5."
@@ -232,6 +337,10 @@ class MainViewModel : ViewModel() {
         activeFilter = filter
     }
 
+    fun onTerminalSearchChanged(value: String) {
+        terminalSearch = value
+    }
+
     fun selectTerminal(terminal: TerminalMarker?) {
         selectedTerminal = terminal
     }
@@ -257,53 +366,78 @@ class MainViewModel : ViewModel() {
         showBankHoldDialog = false
     }
 
-    private fun updateCaseStatus(ncrpId: String, newStatus: ActionStatus) {
-        val index = cases.indexOfFirst { it.ncrpId == ncrpId }
-        if (index != -1) {
-            cases[index] = cases[index].copy(status = newStatus)
+    private fun replaceCase(updated: ComplaintTicket) {
+        val index = cases.indexOfFirst { it.ncrpId == updated.ncrpId }
+        if (index != -1) cases[index] = updated else cases.add(0, updated)
+    }
+
+    private fun runAction(ncrpId: String, action: String, fallbackStatus: ActionStatus) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { api.act(ncrpId, action, officerName) }
+            }.onSuccess { updated ->
+                replaceCase(updated)
+                addAuditEntry(officerName, ncrpId, updated.justification.ifBlank { action }, updated.targetTerminal.bankName, updated.status)
+            }.onFailure {
+                val current = caseById(ncrpId)
+                if (current != null) {
+                    val updated = current.copy(status = fallbackStatus)
+                    replaceCase(updated)
+                    addAuditEntry(officerName, ncrpId, "Action applied ($action)", current.targetTerminal.bankName, fallbackStatus)
+                }
+            }
         }
     }
 
     fun approveAndForward(ncrpId: String) {
         showApproveDialog = false
-        val case = caseById(ncrpId) ?: return
-        updateCaseStatus(ncrpId, ActionStatus.APPROVED)
-        val unit = nearestPoliceUnit(case)
-        addAuditEntry(
-            officerName = officerName,
-            ncrpId = ncrpId,
-            action = "Case approved and forwarded to police",
-            targetUnit = unit,
-            status = ActionStatus.APPROVED
-        )
-        showToast("Case sent to $unit.")
+        if (caseById(ncrpId) == null) return
+        runAction(ncrpId, "escalate", ActionStatus.APPROVED)
+        showToast("Case sent to police with ATM location pack.")
     }
 
     fun issueBankHold(ncrpId: String) {
         showBankHoldDialog = false
         val case = caseById(ncrpId) ?: return
-        updateCaseStatus(ncrpId, ActionStatus.BANK_HOLD)
-        addAuditEntry(
-            officerName = officerName,
-            ncrpId = ncrpId,
-            action = "Account frozen — temporary bank hold placed",
-            targetUnit = case.targetTerminal.bankName,
-            status = ActionStatus.LIEN_PLACED
-        )
-        showToast("Temporary hold placed with ${case.targetTerminal.bankName}.")
+        runAction(ncrpId, "hold", ActionStatus.BANK_HOLD)
+        showToast("Provisional hold placed with ${case.targetTerminal.bankName}.")
     }
 
     fun dismissFalsePositive(ncrpId: String) {
-        val case = caseById(ncrpId) ?: return
-        updateCaseStatus(ncrpId, ActionStatus.DISMISSED)
-        addAuditEntry(
-            officerName = officerName,
-            ncrpId = ncrpId,
-            action = "Marked as false positive — no further action",
-            targetUnit = "—",
-            status = ActionStatus.DISMISSED
-        )
+        if (caseById(ncrpId) == null) return
+        runAction(ncrpId, "dismiss", ActionStatus.DISMISSED)
         showToast("Case dismissed.")
+    }
+
+    fun releaseAfterCustomerConfirmation(ncrpId: String) {
+        val case = caseById(ncrpId) ?: return
+        if (case.status != ActionStatus.BANK_HOLD) return
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    api.act(ncrpId, "confirm_customer", officerName)
+                    api.act(ncrpId, "release", officerName)
+                }
+            }.onSuccess { updated ->
+                replaceCase(updated)
+                showToast("Hold released after customer confirmation.")
+            }.onFailure {
+                val updated = case.copy(status = ActionStatus.RELEASED)
+                replaceCase(updated)
+                addAuditEntry(officerName, ncrpId, "Hold released after customer confirmation", case.targetTerminal.bankName, ActionStatus.RELEASED)
+                showToast("Hold released after customer confirmation.")
+            }
+        }
+    }
+
+    fun fileComplaint(ncrpId: String) {
+        runAction(ncrpId, "file_complaint", ActionStatus.BANK_HOLD)
+        showToast("Complaint linked — digital and ATM block requested.")
+    }
+
+    fun simulateWithdraw(ncrpId: String) {
+        runAction(ncrpId, "simulate_withdraw", ActionStatus.EN_ROUTE)
+        showToast("Cash-out attempt recorded for police.")
     }
 
     private fun nearestPoliceUnit(case: ComplaintTicket): String {

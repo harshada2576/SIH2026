@@ -20,6 +20,12 @@ enum class RiskLevel(val displayName: String) {
     LOW("Low Risk")
 }
 
+/** The operational view shown after sign-in. */
+enum class UserRole(val displayName: String, val shortDescription: String) {
+    BANK_OFFICIAL("Bank official", "Review, hold and forward suspicious activity"),
+    POLICE_INVESTIGATOR("Police investigator", "Trace forwarded cases and location evidence")
+}
+
 /** Current review/dispatch status of a case */
 enum class ActionStatus(val displayName: String) {
     PENDING("Awaiting Review"),
@@ -27,7 +33,8 @@ enum class ActionStatus(val displayName: String) {
     BANK_HOLD("Account Frozen (Bank Hold)"),
     DISMISSED("Dismissed – False Positive"),
     EN_ROUTE("Police En Route"),
-    LIEN_PLACED("Bank Hold Confirmed")
+    LIEN_PLACED("Bank Hold Confirmed"),
+    RELEASED("Released after customer confirmation")
 }
 
 /** Terminal marker on the cashout radar map */
@@ -40,7 +47,8 @@ data class TerminalMarker(
     val riskLevel: RiskLevel,
     val confidencePercent: Int,
     val cashoutWindow: String,
-    val bankName: String = "SBI"
+    val bankName: String = "SBI",
+    val distanceKm: Double? = null
 )
 
 /** Node in the money-laundering trail graph */
@@ -54,7 +62,10 @@ data class TrailNode(
 data class TrailEdge(
     val fromIndex: Int,
     val toIndex: Int,
-    val label: String = ""
+    val label: String = "",
+    val amount: String = "Not supplied",
+    val timestamp: String = "Recorded event",
+    val channel: String = "Digital transfer"
 )
 
 /** Money trail visualization: nodes + edges */
@@ -100,7 +111,41 @@ data class ComplaintTicket(
     /** One-sentence, plain-English summary shown in the case list — no jargon. */
     val summary: String,
     val moneyTrail: MoneyTrail,
-    val riskBreakdown: RiskBreakdown
+    val riskBreakdown: RiskBreakdown,
+    val complaintId: String? = null,
+    val confirmationState: String = "PENDING_CONFIRMATION",
+    val transactionCount: Int = 0,
+    val digitalBlockActive: Boolean = false,
+    val atmBlockActive: Boolean = false,
+    val lifecycle: String = "PRE_COMPLAINT_INTERVENTION",
+    val interventionTier: String = "",
+    val justification: String = "",
+    val legitimateBalance: Double = 0.0,
+    val suspiciousExposure: Double = 0.0,
+    val withdrawalAttempts: List<WithdrawalAttempt> = emptyList(),
+    val nearbyTerminals: List<TerminalMarker> = emptyList(),
+    val repeatActivity: RepeatActivity = RepeatActivity(),
+    val simHash: String = "",
+    val deviceFingerprint: String = "",
+    val confidencePercent: Int = 0,
+    val evidence: List<String> = emptyList()
+)
+
+data class WithdrawalAttempt(
+    val attemptId: String = "",
+    val time: String = "",
+    val amount: String = "",
+    val terminalId: String = "",
+    val location: String = "",
+    val status: String = "FLAGGED"
+)
+
+data class RepeatActivity(
+    val accountId: String = "",
+    val terminalId: String = "",
+    val attempts: Int = 0,
+    val escalation: String = "MONITORED",
+    val multiplier: Double = 1.0
 )
 
 /** An audit log entry — the accountability trail of every action taken */

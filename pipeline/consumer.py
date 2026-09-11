@@ -227,5 +227,9 @@ def run(accounts_path: str | Path | None = None,
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except ConnectionError as e:
+        print(f"\n[!] {e}\n")
+        sys.exit(0)
 

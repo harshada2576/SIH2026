@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.i4c.cybershield.MainViewModel
+import com.i4c.cybershield.model.UserRole
 import com.i4c.cybershield.ui.activity.ActivityScreen
 import com.i4c.cybershield.ui.cases.CasesScreen
 import com.i4c.cybershield.ui.radar.RadarMapScreen
@@ -92,9 +93,11 @@ fun MainScreen(
             when (viewModel.currentTab) {
                 0 -> RadarMapScreen(
                     terminals = viewModel.filteredTerminals,
+                    searchQuery = viewModel.terminalSearch,
                     activeFilter = viewModel.activeFilter,
                     selectedTerminal = viewModel.selectedTerminal,
                     onFilterChanged = viewModel::setFilter,
+                    onSearchChanged = viewModel::onTerminalSearchChanged,
                     onTerminalSelected = viewModel::selectTerminal,
                     onTerminalDismissed = { viewModel.selectTerminal(null) },
                     onInspectTerminal = { terminal ->
@@ -106,6 +109,9 @@ fun MainScreen(
                 1 -> CasesScreen(
                     allCases = viewModel.cases,
                     summaries = viewModel.queueSummaries,
+                    userRole = viewModel.userRole,
+                    backendMessage = viewModel.backendMessage,
+                    backendOnline = viewModel.backendOnline,
                     onCaseSelected = onOpenCase
                 )
 

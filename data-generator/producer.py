@@ -187,7 +187,11 @@ def main():
     if not csv_file.exists():
         log.error(f"No transactions file found at {csv_file}. Please run generate.py first.")
         sys.exit(1)
-    run(csv_path=csv_file, events_per_sec=rate)
+    try:
+        run(csv_path=csv_file, events_per_sec=rate)
+    except ConnectionError as e:
+        print(f"\n[!] {e}\n")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
