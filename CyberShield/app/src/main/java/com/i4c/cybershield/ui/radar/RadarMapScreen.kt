@@ -45,6 +45,7 @@ import org.maplibre.android.style.sources.RasterSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
+import com.i4c.cybershield.model.HeatmapPoint
 import com.i4c.cybershield.model.RiskLevel
 import com.i4c.cybershield.model.TerminalMarker
 import com.i4c.cybershield.model.TerminalType
@@ -224,7 +225,7 @@ fun RadarMapScreen(
                     view.getMapAsync { map ->
                         map.getStyle { style ->
                             // ── Heatmap Layer ────────────────────────
-                            val heatFeatures = if (isHeatmapEnabled) {
+                            val heatFeatures: List<Feature> = if (isHeatmapEnabled) {
                                 heatmapPoints.map { hp ->
                                     Feature.fromGeometry(Point.fromLngLat(hp.longitude, hp.latitude)).apply {
                                         addNumberProperty("weight", hp.weight)
@@ -235,9 +236,9 @@ fun RadarMapScreen(
 
                             val heatSource = style.getSourceAs<GeoJsonSource>("heatmap-source")
                             if (heatSource != null) {
-                                heatSource.setGeoJson(FeatureCollection.fromFeatures(heatFeatures))
+                                heatSource.setGeoJson(FeatureCollection.fromFeatures(heatFeatures.toTypedArray()))
                             } else {
-                                style.addSource(GeoJsonSource("heatmap-source", FeatureCollection.fromFeatures(heatFeatures)))
+                                style.addSource(GeoJsonSource("heatmap-source", FeatureCollection.fromFeatures(heatFeatures.toTypedArray())))
 
                                 val heatCircleLayer = CircleLayer("heatmap-layer", "heatmap-source")
                                     .withProperties(
@@ -263,7 +264,7 @@ fun RadarMapScreen(
                             }
 
                             // ── Terminal Markers Layer ───────────────
-                            val features = terminals.map { terminal ->
+                            val features: List<Feature> = terminals.map { terminal ->
                                 Feature.fromGeometry(Point.fromLngLat(terminal.longitude, terminal.latitude)).apply {
                                     addStringProperty("id", terminal.id)
                                     addNumberProperty("confidence", terminal.confidencePercent)
@@ -273,9 +274,9 @@ fun RadarMapScreen(
 
                             val source = style.getSourceAs<GeoJsonSource>("terminals-source")
                             if (source != null) {
-                                source.setGeoJson(FeatureCollection.fromFeatures(features))
+                                source.setGeoJson(FeatureCollection.fromFeatures(features.toTypedArray()))
                             } else {
-                                style.addSource(GeoJsonSource("terminals-source", FeatureCollection.fromFeatures(features)))
+                                style.addSource(GeoJsonSource("terminals-source", FeatureCollection.fromFeatures(features.toTypedArray())))
 
                                 val hotspotLayer = CircleLayer("hotspots-layer", "terminals-source")
                                     .withFilter(Expression.eq(Expression.get("isHotspot"), true))
@@ -368,6 +369,10 @@ fun RadarMapScreen(
 private fun RadarTopBar(
     searchQuery: String,
     activeFilter: String,
+    isHeatmapEnabled: Boolean = true,
+    heatmapEventType: String = "ALL",
+    onToggleHeatmap: () -> Unit = {},
+    onHeatmapEventTypeChanged: (String) -> Unit = {},
     onFilterChanged: (String) -> Unit,
     onSearchChanged: (String) -> Unit,
     terminalCount: Int,
@@ -513,7 +518,7 @@ private fun RadarTopBar(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Filter Chips
+        // Filter Chips & Heatmap Controls
         val filters = listOf("All Terminals", "Bank ATMs", "AEPS Micro-ATMs")
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -549,6 +554,39 @@ private fun RadarTopBar(
                     border = FilterChipDefaults.filterChipBorder(
                         borderColor = BorderTaupe.copy(alpha = 0.3f),
                         selectedBorderColor = AlertOrange.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(20.dp)
+                )
+            }
+
+            item {
+                FilterChip(
+                    selected = isHeatmapEnabled,
+                    onClick = onToggleHeatmap,
+                    label = {
+                        Text(
+                            text = "Heatmap",
+                            fontSize = 12.sp,
+                            fontWeight = if (isHeatmapEnabled) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.LocalFireDepartment,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = ChipUnselectedBg,
+                        labelColor = BorderTaupe,
+                        selectedContainerColor = AlertOrange.copy(alpha = 0.2f),
+                        selectedLabelColor = AlertOrange,
+                        selectedLeadingIconColor = AlertOrange
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        borderColor = BorderTaupe.copy(alpha = 0.3f),
+                        selectedBorderColor = AlertOrange.copy(alpha = 0.6f)
                     ),
                     shape = RoundedCornerShape(20.dp)
                 )

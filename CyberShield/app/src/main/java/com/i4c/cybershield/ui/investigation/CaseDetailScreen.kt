@@ -361,16 +361,16 @@ private fun CaseOverviewCard(case: ComplaintTicket) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                DetailMetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.MoneyOff, label = "Amount at Risk",
+                MetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.MoneyOff, label = "Amount at Risk",
                     value = case.reportedLoss, valueColor = AlertOrange)
-                DetailMetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Timer, label = "Reported",
+                MetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Timer, label = "Reported",
                     value = case.timeElapsed, valueColor = WarningYellow)
             }
             Spacer(modifier = Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                DetailMetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Place, label = "Predicted Cash-Out",
+                MetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Place, label = "Predicted Cash-Out",
                     value = case.targetTerminal.id, valueColor = TextOffWhite)
-                DetailMetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Schedule, label = "Expected Window",
+                MetricChip(modifier = Modifier.weight(1f), icon = Icons.Default.Schedule, label = "Expected Window",
                     value = case.targetTerminal.cashoutWindow, valueColor = TextOffWhite)
             }
         }

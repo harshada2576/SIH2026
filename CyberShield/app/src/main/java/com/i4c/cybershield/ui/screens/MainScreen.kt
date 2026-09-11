@@ -102,7 +102,7 @@ fun MainScreen(
                     heatmapPoints = viewModel.heatmapPoints,
                     heatmapEventType = viewModel.heatmapEventType,
                     onToggleHeatmap = viewModel::toggleHeatmap,
-                    onHeatmapEventTypeChanged = viewModel::setHeatmapEventType,
+                    onHeatmapEventTypeChanged = viewModel::updateHeatmapEventType,
                     onFilterChanged = viewModel::setFilter,
                     onSearchChanged = viewModel::onTerminalSearchChanged,
                     onTerminalSelected = viewModel::selectTerminal,

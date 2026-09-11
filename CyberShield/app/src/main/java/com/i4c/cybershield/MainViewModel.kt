@@ -126,7 +126,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isHeatmapEnabled = !isHeatmapEnabled
     }
 
-    fun setHeatmapEventType(type: String) {
+    fun updateHeatmapEventType(type: String) {
         heatmapEventType = type
         refreshFromBackend()
     }
@@ -265,6 +265,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val terms = api.fetchTerminals()
                     val log = api.fetchAudit()
                     val heat = api.fetchHeatmap(heatmapEventType)
+                    Triple(loaded, terms, Pair(log, heat))
+                }
             }.onSuccess { (loaded, terms, logAndHeat) ->
                 val (log, heat) = logAndHeat
                 if (loaded.isNotEmpty()) {
