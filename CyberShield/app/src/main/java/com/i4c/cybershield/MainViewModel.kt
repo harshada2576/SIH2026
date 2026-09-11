@@ -39,10 +39,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val connectionManager = NetworkConnectionManager.getInstance(application)
     private val api = CyberShieldApi(application)
 
-    val connectionState: ConnectionState get() = connectionManager.connectionState
-    val backendOnline: Boolean get() = connectionManager.connectionState == ConnectionState.CONNECTED
-    val backendMessage: String get() = connectionManager.statusMessage
-    val currentServerUrl: String get() = connectionManager.baseUrl
+    var connectionState by mutableStateOf(connectionManager.connectionState)
+        private set
+    var backendOnline by mutableStateOf(connectionManager.connectionState == ConnectionState.CONNECTED)
+        private set
+    var backendMessage by mutableStateOf(connectionManager.statusMessage)
+        private set
+    var currentServerUrl by mutableStateOf(connectionManager.baseUrl)
+        private set
 
     // ─── Authentication State ──────────────────────────────────────────
     var email by mutableStateOf("")
@@ -163,6 +167,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     init {
+        viewModelScope.launch {
+            connectionManager.connectionStateFlow.collect { state ->
+                connectionState = state
+                backendOnline = (state == ConnectionState.CONNECTED)
+                if (state == ConnectionState.CONNECTED) {
+                    refreshFromBackend()
+                }
+            }
+        }
+        viewModelScope.launch {
+            connectionManager.baseUrlFlow.collect { url ->
+                currentServerUrl = url
+            }
+        }
+        viewModelScope.launch {
+            connectionManager.statusMessageFlow.collect { msg ->
+                backendMessage = msg
+            }
+        }
         setupWebSocketListener()
         connectionManager.startDiscovery()
         startPeriodicSync()

@@ -68,19 +68,29 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private val isDiscoveringNsd = AtomicBoolean(false)
 
-    // Observable Compose state
-    var connectionState by mutableStateOf(ConnectionState.DISCONNECTED)
-        private set
-    var activeHost by mutableStateOf<String?>(null)
-        private set
-    var activePort by mutableStateOf(DEFAULT_PORT)
-        private set
-    var baseUrl by mutableStateOf("http://127.0.0.1:$DEFAULT_PORT")
-        private set
-    var wsUrl by mutableStateOf("ws://127.0.0.1:$DEFAULT_PORT/ws")
-        private set
-    var statusMessage by mutableStateOf("Ready to connect")
-        private set
+    private val _connectionState = kotlinx.coroutines.flow.MutableStateFlow(ConnectionState.DISCONNECTED)
+    val connectionStateFlow: kotlinx.coroutines.flow.StateFlow<ConnectionState> = _connectionState
+    val connectionState: ConnectionState get() = _connectionState.value
+
+    private val _activeHost = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val activeHostFlow: kotlinx.coroutines.flow.StateFlow<String?> = _activeHost
+    val activeHost: String? get() = _activeHost.value
+
+    private val _activePort = kotlinx.coroutines.flow.MutableStateFlow(DEFAULT_PORT)
+    val activePortFlow: kotlinx.coroutines.flow.StateFlow<Int> = _activePort
+    val activePort: Int get() = _activePort.value
+
+    private val _baseUrl = kotlinx.coroutines.flow.MutableStateFlow("http://127.0.0.1:$DEFAULT_PORT")
+    val baseUrlFlow: kotlinx.coroutines.flow.StateFlow<String> = _baseUrl
+    val baseUrl: String get() = _baseUrl.value
+
+    private val _wsUrl = kotlinx.coroutines.flow.MutableStateFlow("ws://127.0.0.1:$DEFAULT_PORT/ws")
+    val wsUrlFlow: kotlinx.coroutines.flow.StateFlow<String> = _wsUrl
+    val wsUrl: String get() = _wsUrl.value
+
+    private val _statusMessage = kotlinx.coroutines.flow.MutableStateFlow("Ready to connect")
+    val statusMessageFlow: kotlinx.coroutines.flow.StateFlow<String> = _statusMessage
+    val statusMessage: String get() = _statusMessage.value
 
     // WebSocket & OkHttp Client
     private val httpClient = OkHttpClient.Builder()
@@ -118,39 +128,35 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
         }
 
         isIntentionalDisconnect = false
-        connectionState = ConnectionState.DISCOVERING
-        statusMessage = "Searching for laptop backend on Wi-Fi..."
+        _connectionState.value = ConnectionState.DISCOVERING
+        _statusMessage.value = "Searching for laptop backend on Wi-Fi..."
 
         discoveryJob?.cancel()
         discoveryJob = scope.launch {
             acquireMulticastLock()
 
-            // Launch 3 parallel discovery strategies concurrently:
-            val nsdDeferred = async { startNsdDiscovery() }
-            val udpDeferred = async { probeUdpBroadcast() }
-            val gatewayDeferred = async { probeSubnetAndGateways() }
+            // Launch parallel discovery strategies concurrently:
+            val p1 = launch { probeSubnetAndGateways() }
+            val p2 = launch { probeUdpBroadcast() }
+            val p3 = launch { startNsdDiscovery() }
 
-            // Race to first valid candidate
-            val found = selectFirstValid(listOf(udpDeferred, gatewayDeferred, nsdDeferred))
-            if (!found && isActive && connectionState != ConnectionState.CONNECTED) {
-                // Retry once with broader subnet sweep
-                delay(1500)
-                if (connectionState != ConnectionState.CONNECTED) {
-                    val fallbackFound = probeSubnetAndGateways()
-                    if (!fallbackFound && connectionState != ConnectionState.CONNECTED) {
-                        connectionState = ConnectionState.BACKEND_NOT_FOUND
-                        statusMessage = "Backend not found on local Wi-Fi. (Tap to retry or enter manual IP)"
-                    }
+            // Poll for first successful connection up to 5 seconds
+            val startTime = System.currentTimeMillis()
+            while (isActive && System.currentTimeMillis() - startTime < 5000) {
+                if (connectionState == ConnectionState.CONNECTED) {
+                    p1.cancel()
+                    p2.cancel()
+                    p3.cancel()
+                    return@launch
                 }
+                delay(150)
+            }
+
+            if (connectionState != ConnectionState.CONNECTED) {
+                _connectionState.value = ConnectionState.BACKEND_NOT_FOUND
+                _statusMessage.value = "Backend not found on local Wi-Fi. (Tap to retry or enter manual IP)"
             }
         }
-    }
-
-    private suspend fun selectFirstValid(deferreds: List<Deferred<Boolean>>): Boolean {
-        for (d in deferreds) {
-            if (d.await()) return true
-        }
-        return false
     }
 
     /**
@@ -158,13 +164,13 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
      */
     fun setManualHost(host: String, port: Int = DEFAULT_PORT) {
         scope.launch {
-            statusMessage = "Testing connection to $host:$port..."
-            connectionState = ConnectionState.RECONNECTING
+            _statusMessage.value = "Testing connection to $host:$port..."
+            _connectionState.value = ConnectionState.RECONNECTING
             if (verifyHealth(host, port)) {
                 onBackendResolved(host, port, "Manual configuration")
             } else {
-                statusMessage = "Could not connect to $host:$port"
-                connectionState = ConnectionState.BACKEND_NOT_FOUND
+                _statusMessage.value = "Could not connect to $host:$port"
+                _connectionState.value = ConnectionState.BACKEND_NOT_FOUND
             }
         }
     }
@@ -173,20 +179,21 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
      * Called when a valid backend candidate IP & port are discovered.
      */
     private fun onBackendResolved(host: String, port: Int, discoveryMethod: String) {
-        if (connectionState == ConnectionState.CONNECTED && activeHost == host && activePort == port) {
+        if (connectionState == ConnectionState.CONNECTED) {
             return
         }
 
-        activeHost = host
-        activePort = port
-        baseUrl = "http://$host:$port"
-        wsUrl = "ws://$host:$port/ws"
-        connectionState = ConnectionState.CONNECTED
-        statusMessage = "Connected to $host:$port ($discoveryMethod)"
+        _activeHost.value = host
+        _activePort.value = port
+        _baseUrl.value = "http://$host:$port"
+        _wsUrl.value = "ws://$host:$port/ws"
+        _connectionState.value = ConnectionState.CONNECTED
+        _statusMessage.value = "Connected to $host:$port ($discoveryMethod)"
         Log.i(TAG, "Backend connected at $baseUrl via $discoveryMethod")
 
         stopNsdDiscovery()
         releaseMulticastLock()
+        discoveryJob?.cancel()
 
         // Start real-time WebSocket connection
         connectWebSocket()
@@ -371,12 +378,12 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Discovery Method 3: Fast Subnet Gateway & Known Candidate Probing
+    // Discovery Method 3: Fast Subnet Gateway, ARP & Known Candidate Probing
     // ─────────────────────────────────────────────────────────────────────────
     private suspend fun probeSubnetAndGateways(): Boolean = withContext(Dispatchers.IO) {
         val candidates = mutableSetOf<String>()
 
-        // 1. Hotspot standard default gateways
+        // 1. Hotspot standard default gateways & loopbacks
         candidates.add("192.168.43.1") // Android Hotspot default gateway
         candidates.add("192.168.1.1")
         candidates.add("192.168.0.1")
@@ -392,25 +399,65 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
             }
         } catch (e: Exception) { /* ignore */ }
 
-        // Test candidates concurrently with fast timeout
-        val jobs = candidates.map { host ->
-            async {
+        // 3. Read ARP table /proc/net/arp (Instant on Android Hotspot AP mode)
+        try {
+            val arpFile = java.io.File("/proc/net/arp")
+            if (arpFile.exists()) {
+                arpFile.forEachLine { line ->
+                    val tokens = line.trim().split(Regex("\\s+"))
+                    if (tokens.isNotEmpty()) {
+                        val ip = tokens[0]
+                        if (ip.matches(Regex("\\d+\\.\\d+\\.\\d+\\.\\d+")) && !ip.startsWith("0.")) {
+                            candidates.add(ip)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Could not read /proc/net/arp: ${e.message}")
+        }
+
+        // 4. Interface-based local subnet candidates
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val netIf = interfaces.nextElement()
+                if (netIf.isLoopback) continue
+                for (ia in netIf.interfaceAddresses) {
+                    val addr = ia.address
+                    if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                        val hostIp = addr.hostAddress ?: continue
+                        val prefix = hostIp.substringBeforeLast(".")
+                        for (i in 1..254) {
+                            candidates.add("$prefix.$i")
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Error querying network interfaces: ${e.message}")
+        }
+
+        // Test all candidates simultaneously with fast timeout race
+        val resolved = CompletableDeferred<Boolean>()
+        val probeJobs = candidates.map { host ->
+            launch {
                 if (verifyHealth(host, DEFAULT_PORT)) {
-                    host to DEFAULT_PORT
-                } else null
+                    withContext(Dispatchers.Main) {
+                        onBackendResolved(host, DEFAULT_PORT, "Fast Subnet Probe")
+                    }
+                    resolved.complete(true)
+                }
             }
         }
 
-        for (job in jobs) {
-            val res = job.await()
-            if (res != null) {
-                withContext(Dispatchers.Main) {
-                    onBackendResolved(res.first, res.second, "Direct Gateway Probe")
-                }
-                return@withContext true
-            }
+        val result = try {
+            withTimeout(2000) { resolved.await() }
+        } catch (e: Exception) {
+            false
         }
-        return@withContext false
+        probeJobs.forEach { it.cancel() }
+        return@withContext result
     }
 
     private fun intToIp(ip: Int): String {
@@ -520,8 +567,8 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
                     consecutiveFailures++
                     Log.w(TAG, "Health check failed (attempt $consecutiveFailures/3)")
                     if (consecutiveFailures >= 3) {
-                        connectionState = ConnectionState.RECONNECTING
-                        statusMessage = "Connection lost. Rediscovering backend..."
+                        _connectionState.value = ConnectionState.RECONNECTING
+                        _statusMessage.value = "Connection lost. Rediscovering backend..."
                         startDiscovery()
                         break
                     }
@@ -547,8 +594,8 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
                 override fun onLost(network: Network) {
                     Log.w(TAG, "Network connection lost.")
                     if (connectionState == ConnectionState.CONNECTED) {
-                        connectionState = ConnectionState.DISCONNECTED
-                        statusMessage = "Wi-Fi disconnected."
+                        _connectionState.value = ConnectionState.DISCONNECTED
+                        _statusMessage.value = "Wi-Fi disconnected."
                     }
                 }
             })
