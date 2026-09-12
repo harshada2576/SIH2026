@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import csv
+import logging
 import math
 import sys
 from datetime import datetime, timedelta, timezone
@@ -12,6 +13,8 @@ from typing import Any, Dict, List, Optional
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+log = logging.getLogger("case_engine")
 
 from audit.blockchain_lite import AuditLedger
 from detection import scorer
@@ -657,6 +660,103 @@ class CaseEngine:
 
     def get(self, ncrp_id: str) -> Optional[dict]:
         return self.cases.get(ncrp_id)
+
+    def process_transaction(
+        self,
+        tx: Union[dict, TransactionEvent],
+        as_of: Optional[datetime] = None,
+    ) -> Optional[dict]:
+        """Ingests a transaction event into the live GraphStore, persists it to SQLite,
+        evaluates affected accounts against explainable detection rules, creates/updates
+        high-risk cases, and triggers live WebSocket alert broadcasts."""
+        if isinstance(tx, dict):
+            event = TransactionEvent.from_dict(tx)
+        elif isinstance(tx, TransactionEvent):
+            event = tx
+        else:
+            log.warning(f"Invalid transaction payload type: {type(tx)}")
+            return None
+
+        # Add transaction to in-memory graph
+        self.graph.add_transaction(event)
+
+        # Save to SQLite persistence
+        try:
+            raw_tx = event.to_dict() if hasattr(event, "to_dict") else asdict(event)
+            self.store.save_transaction(raw_tx)
+        except Exception as e:
+            log.warning(f"Failed to persist transaction to SQLite: {e}")
+
+        eval_time = as_of or (event.timestamp_utc if hasattr(event, "timestamp_utc") else datetime.now(timezone.utc))
+        term_nodes = scorer.load_terminals()
+        flagged_case = None
+
+        for account_id in (event.target_account_id, event.source_account_id):
+            if not account_id or not account_id.startswith("ACC"):
+                continue
+
+            ev = scorer.evaluate_account(self.graph, account_id, as_of=eval_time)
+            # Threshold for alert creation in live stream
+            if ev.score >= 50:
+                alert = scorer.analyze(self.graph, account_id, terminals=term_nodes, as_of=eval_time, notify_threshold=50)
+                if alert is not None:
+                    decision = decide_intervention(alert, ev.band)
+                    new_case = self._to_case(account_id, ev, alert, decision)
+                    new_case["demoTag"] = "live-stream"
+
+                    # Check if an existing case for this account exists
+                    existing = next((c for c in self.cases.values() if c.get("flaggedAccountId") == account_id), None)
+                    if existing:
+                        new_case["ncrpId"] = existing["ncrpId"]
+                        if existing.get("status") in {"APPROVED", "DISMISSED", "FIELD_PATROL_DISPATCHED", "BANK_HOLD"}:
+                            new_case["status"] = existing["status"]
+                        self.cases[new_case["ncrpId"]] = new_case
+                        self._log(new_case["ncrpId"], f"Live stream update: tx {event.transaction_id} (₹{event.amount_inr:,.0f})", new_case["status"], "Detection Engine")
+                    else:
+                        self.cases[new_case["ncrpId"]] = new_case
+                        self._log(new_case["ncrpId"], f"Live alert generated: tx {event.transaction_id} on {account_id}", new_case["status"], "Detection Engine")
+
+                    self.ledger.append({
+                        "complaint_id": new_case["ncrpId"],
+                        "flagged_account_id": account_id,
+                        "tier": decision.tier,
+                        "justification": decision.justification,
+                        "transaction_id": event.transaction_id,
+                    })
+
+                    try:
+                        self.store.save_alert(alert, ev.band)
+                        self.store.save_intervention(new_case["ncrpId"], decision)
+                    except Exception as e:
+                        log.debug(f"SQLite save alert/intervention: {e}")
+
+                    # Broadcast over WebSocket channel
+                    try:
+                        from api.server import sync_broadcast
+                        sync_broadcast("NEW_ALERT", {
+                            "case": new_case,
+                            "message": f"🚨 High-Risk Fraud Alert: {new_case['ncrpId']} on {account_id}!",
+                            "audit": self.audit[0] if self.audit else None,
+                        })
+                    except Exception as e:
+                        log.debug(f"WebSocket broadcast error: {e}")
+
+                    flagged_case = new_case
+
+        return flagged_case
+
+    def process_transactions_batch(
+        self,
+        txs: List[Union[dict, TransactionEvent]],
+        as_of: Optional[datetime] = None,
+    ) -> List[dict]:
+        """Ingests a sequence of transactions, evaluating cases and returning all generated alerts."""
+        cases = []
+        for tx in txs:
+            c = self.process_transaction(tx, as_of=as_of)
+            if c and c not in cases:
+                cases.append(c)
+        return cases
 
     def _log(self, ncrp_id: str, action: str, status: str, officer: str = "Duty officer") -> None:
         entry = {
