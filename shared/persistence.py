@@ -288,7 +288,7 @@ class Store:
         self.db_path = Path(db_path or DEFAULT_DB_PATH)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn = sqlite3.connect(str(self.db_path), timeout=30.0, check_same_thread=False)
             self._conn.execute("PRAGMA journal_mode=WAL;")
         except sqlite3.OperationalError:
             for suffix in ["-wal", "-shm"]:
@@ -298,7 +298,7 @@ class Store:
                         aux.unlink()
                     except Exception:
                         pass
-            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn = sqlite3.connect(str(self.db_path), timeout=30.0, check_same_thread=False)
             self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA synchronous=NORMAL;")
         self._conn.executescript(SCHEMA)

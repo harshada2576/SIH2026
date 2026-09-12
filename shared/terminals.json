@@ -208,33 +208,5 @@
     "latitude": 26.9268,
     "longitude": 75.79898,
     "district_pincode": "302001"
-  },
-  {
-    "terminal_id": "ATM-HDFC-MUM-901",
-    "terminal_type": "ATM_KIOSK",
-    "latitude": 19.076,
-    "longitude": 72.8777,
-    "district_pincode": "400001"
-  },
-  {
-    "terminal_id": "AEPS-MUM-902",
-    "terminal_type": "AEPS_MICRO_ATM",
-    "latitude": 19.0896,
-    "longitude": 72.8656,
-    "district_pincode": "400001"
-  },
-  {
-    "terminal_id": "ATM-ICICI-HYD-903",
-    "terminal_type": "ATM_KIOSK",
-    "latitude": 17.385,
-    "longitude": 78.4867,
-    "district_pincode": "500001"
-  },
-  {
-    "terminal_id": "AEPS-HYD-904",
-    "terminal_type": "AEPS_MICRO_ATM",
-    "latitude": 17.4065,
-    "longitude": 78.4772,
-    "district_pincode": "500001"
   }
 ]

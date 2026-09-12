@@ -97,25 +97,71 @@ class WebSocketManager:
                     self.active_connections.discard(ws)
 
 
+MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
+kafka_consumer_running = False
+kafka_thread: Optional[threading.Thread] = None
+
 ws_manager = WebSocketManager()
 
 
 def sync_broadcast(event_type: str, data: Any) -> None:
-    """Helper to dispatch WebSocket broadcasts from synchronous engine callbacks."""
+    """Helper to dispatch WebSocket broadcasts from synchronous engine or worker threads."""
+    global MAIN_LOOP
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(ws_manager.broadcast(event_type, data))
-    except RuntimeError:
-        # No running event loop in thread
-        pass
+        if MAIN_LOOP is not None and MAIN_LOOP.is_running():
+            asyncio.run_coroutine_threadsafe(ws_manager.broadcast(event_type, data), MAIN_LOOP)
+        else:
+            loop = asyncio.get_running_loop()
+            loop.create_task(ws_manager.broadcast(event_type, data))
+    except Exception as e:
+        log.debug(f"[WS] Broadcast notice: {e}")
+
+
+def _run_kafka_background_consumer() -> None:
+    """Background daemon thread listening on Kafka 'transactions' topic and feeding CaseEngine."""
+    global kafka_consumer_running
+    try:
+        from shared.kafka_utils import (
+            KAFKA_BOOTSTRAP_SERVERS,
+            TRANSACTIONS_TOPIC,
+            get_kafka_consumer,
+            safe_json_deserializer,
+        )
+        log.info(f"[Kafka] Connecting background live consumer to {KAFKA_BOOTSTRAP_SERVERS} on topic '{TRANSACTIONS_TOPIC}'...")
+        consumer = get_kafka_consumer(
+            TRANSACTIONS_TOPIC,
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+            value_deserializer=safe_json_deserializer,
+            auto_offset_reset="latest",
+            group_id="cybershield-backend-live-consumer",
+            consumer_timeout_ms=2000,
+        )
+        kafka_consumer_running = True
+        log.info(f"[Kafka] Connected! Live stream ingestion active on topic '{TRANSACTIONS_TOPIC}'.")
+        while kafka_consumer_running:
+            try:
+                for msg in consumer:
+                    if not kafka_consumer_running:
+                        break
+                    tx_dict = msg.value
+                    if tx_dict and isinstance(tx_dict, dict):
+                        ENGINE.process_transaction(tx_dict)
+            except Exception as e:
+                if kafka_consumer_running:
+                    log.debug(f"[Kafka] Consumer poll cycle notice: {e}")
+                    import time
+                    time.sleep(1)
+    except Exception as e:
+        log.info(f"[Kafka] Local broker not running or unreachable ({e}). Direct HTTP transaction ingestion is active.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Lifespan Management (Auto-starts discovery advertising on boot)
+# Lifespan Management (Auto-starts discovery advertising & Kafka consumer on boot)
 # ─────────────────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global discovery_service
+    global MAIN_LOOP, discovery_service, kafka_thread, kafka_consumer_running
+    MAIN_LOOP = asyncio.get_running_loop()
     port = getattr(app.state, "port", 5003)
     lan_ip = get_primary_lan_ip()
     log.info(f"==================================================================")
@@ -128,8 +174,14 @@ async def lifespan(app: FastAPI):
     discovery_service = DiscoveryService(port=port, service_name="CyberShield-Backend")
     discovery_service.start()
 
+    # Launch background Kafka live consumer thread
+    import threading
+    kafka_thread = threading.Thread(target=_run_kafka_background_consumer, name="KafkaConsumerDaemon", daemon=True)
+    kafka_thread.start()
+
     yield
 
+    kafka_consumer_running = False
     if discovery_service:
         discovery_service.stop()
 
@@ -195,6 +247,48 @@ async def health():
         "cases": len(ENGINE.cases),
         "terminals": len(ENGINE.terminals),
         "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@app.post("/transactions")
+async def ingest_transactions(request: Request):
+    """Ingests live transaction(s) into the detection pipeline, updates graph,
+    and broadcasts NEW_ALERT over WebSockets if high risk is detected."""
+    try:
+        payload = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+
+    if isinstance(payload, list):
+        tx_list = payload
+    elif isinstance(payload, dict) and "transactions" in payload:
+        tx_list = payload["transactions"]
+        if "accounts" in payload:
+            for acc_raw in payload["accounts"]:
+                try:
+                    meta = AccountNodeMetadata.from_dict(acc_raw) if not isinstance(acc_raw, AccountNodeMetadata) else acc_raw
+                    ENGINE.graph.add_account_metadata(meta)
+                except Exception as e:
+                    log.debug(f"Metadata registration notice: {e}")
+    elif isinstance(payload, dict):
+        tx_list = [payload]
+    else:
+        raise HTTPException(status_code=400, detail="Expected transaction object or list")
+
+    created_cases = []
+    for raw in tx_list:
+        try:
+            case = ENGINE.process_transaction(raw)
+            if case:
+                created_cases.append(case)
+        except Exception as e:
+            log.warning(f"Error processing transaction {raw.get('transaction_id')}: {e}")
+
+    return {
+        "ok": True,
+        "processed": len(tx_list),
+        "alerts_generated": len(created_cases),
+        "cases": created_cases,
     }
 
 

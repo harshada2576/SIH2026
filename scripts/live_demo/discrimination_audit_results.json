@@ -1,0 +1,693 @@
+{
+  "timestamp": "2026-09-12T00:02:12.793295+00:00",
+  "api_url": "http://127.0.0.1:5003",
+  "test_1_normal_only": {
+    "total_transactions": 1000,
+    "duration_seconds": 199.74,
+    "throughput_tps": 5.01,
+    "total_normal_accounts": 124,
+    "normal_accounts_alerted": 0,
+    "actionable_alerts": 0,
+    "log_only_cases": 0,
+    "tier_breakdown": {},
+    "score_stats": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0,
+      "p95": 0.0,
+      "p99": 0.0,
+      "max": 0.0
+    },
+    "score_histogram": {
+      "0-10%": 124,
+      "11-20%": 0,
+      "21-30%": 0,
+      "31-40%": 0,
+      "41-50%": 0,
+      "51-60%": 0,
+      ">60%": 0
+    },
+    "false_positive_rate_tx": 0.0,
+    "false_positive_rate_acc": 0.0,
+    "actionable_fpr_tx": 0.0,
+    "actionable_fpr_acc": 0.0,
+    "behavioral_class_counts": {
+      "07_micro_upi": 113,
+      "01_ordinary_p2p": 154,
+      "04_merchant_retail": 170,
+      "10_own_account_self": 53,
+      "14_commercial_supply": 29,
+      "03_salary_payroll": 41,
+      "02_family_friends": 105,
+      "15_borderline_burst": 18,
+      "08_atm_withdrawal": 52,
+      "05_utility_bills": 47,
+      "13_frequent_merchant": 84,
+      "06_subscriptions": 44,
+      "12_travel_commute": 32,
+      "09_b2b_vendor": 42,
+      "11_large_purchase": 16
+    }
+  },
+  "test_2_fraud_only": {
+    "total_scenarios": 30,
+    "passed_scenarios": 26,
+    "detection_rate": 86.67,
+    "duration_seconds": 64.04,
+    "tier_breakdown": {
+      "UNKNOWN": 1,
+      "SOFT_NOTIFY": 29
+    },
+    "score_stats": {
+      "mean": 72.0,
+      "min": 72.0,
+      "max": 72.0
+    },
+    "scenarios": [
+      {
+        "id": "01",
+        "file": "01_simple_mule.py",
+        "flagged_account": "UNKNOWN",
+        "passed": false,
+        "risk_score": 0.0,
+        "tier": "UNKNOWN",
+        "signals": []
+      },
+      {
+        "id": "02",
+        "file": "02_layering.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "03",
+        "file": "03_fan_in.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "04",
+        "file": "04_fan_out.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": false,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "05",
+        "file": "05_rapid_forwarding.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "06",
+        "file": "06_shared_device.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "07",
+        "file": "07_multi_victim_common_mule.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "08",
+        "file": "08_dormant_activation.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "09",
+        "file": "09_repeated_atm_targeting.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "10",
+        "file": "10_distributed_cashout.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "11",
+        "file": "11_cross_city_mule.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "12",
+        "file": "12_probing_then_large.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "13",
+        "file": "13_geo_velocity.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "14",
+        "file": "14_fan_in_fan_out.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "15",
+        "file": "15_shared_kyc_cluster.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "16",
+        "file": "16_concurrent_campaign.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "17",
+        "file": "17_amount_escalation.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "18",
+        "file": "18_rapid_multi_account_cashout.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "19",
+        "file": "19_cross_device_mule_chain.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "20",
+        "file": "20_layering_with_distributed_cashout.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": false,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "21",
+        "file": "21_simple_mule_variant.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "22",
+        "file": "22_layering_variant.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "23",
+        "file": "23_fan_in_variant.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "24",
+        "file": "24_fan_out_variant.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": false,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "25",
+        "file": "25_rapid_forwarding_variant.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "26",
+        "file": "26_shared_device_variant.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "27",
+        "file": "27_multi_victim_variant.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "28",
+        "file": "28_dormant_activation_variant.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "29",
+        "file": "29_repeated_terminal_variant.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      },
+      {
+        "id": "30",
+        "file": "30_distributed_cashout_variant.py",
+        "flagged_account": "ACC-MULE01",
+        "passed": true,
+        "risk_score": 72.0,
+        "tier": "SOFT_NOTIFY",
+        "signals": [
+          "Money moved out unusually fast",
+          "Several accounts feeding one account",
+          "Unusual behaviour for this account",
+          "Money passed through several accounts quickly",
+          "Almost all incoming money was forwarded",
+          "Money split out to many accounts",
+          "Account is only days old",
+          "Same device used across accounts"
+        ]
+      }
+    ]
+  },
+  "test_3_mixed_stream": {
+    "total_normal_transactions": 600,
+    "total_fraud_scenarios": 10,
+    "duration_seconds": 202.41,
+    "confusion_matrix": {
+      "TP": 9,
+      "FP": 0,
+      "TN": 124,
+      "FN": 1
+    },
+    "metrics": {
+      "precision": 100.0,
+      "recall": 90.0,
+      "f1_score": 94.74,
+      "false_positive_rate": 0.0,
+      "scenario_detection_rate": 90.0,
+      "normal_quiet_rate": 100.0
+    },
+    "scenario_outcomes": [
+      {
+        "id": "01",
+        "passed": true,
+        "account": "ACC-MULE01",
+        "score": 72,
+        "tier": "SOFT_NOTIFY"
+      },
+      {
+        "id": "02",
+        "passed": true,
+        "account": "ACC-MULE01",
+        "score": 72,
+        "tier": "SOFT_NOTIFY"
+      },
+      {
+        "id": "03",
+        "passed": true,
+        "account": "ACC-MULE01",
+        "score": 72,
+        "tier": "SOFT_NOTIFY"
+      },
+      {
+        "id": "04",
+        "passed": true,
+        "account": "ACC-MULE01",
+        "score": 72,
+        "tier": "SOFT_NOTIFY"
+      },
+      {
+        "id": "05",
+        "passed": true,
+        "account": "ACC-MULE01",
+        "score": 72,
+        "tier": "SOFT_NOTIFY"
+      },
+      {
+        "id": "08",
+        "passed": true,
+        "account": "ACC-MULE01",
+        "score": 72,
+        "tier": "SOFT_NOTIFY"
+      },
+      {
+        "id": "10",
+        "passed": true,
+        "account": "ACC-MULE01",
+        "score": 72,
+        "tier": "SOFT_NOTIFY"
+      },
+      {
+        "id": "13",
+        "passed": true,
+        "account": "ACC-MULE01",
+        "score": 72,
+        "tier": "SOFT_NOTIFY"
+      },
+      {
+        "id": "15",
+        "passed": true,
+        "account": "ACC-MULE01",
+        "score": 72,
+        "tier": "SOFT_NOTIFY"
+      },
+      {
+        "id": "20",
+        "passed": false,
+        "account": "ACC-MULE01",
+        "score": 72,
+        "tier": "SOFT_NOTIFY"
+      }
+    ]
+  },
+  "confusion_matrix": {},
+  "score_distributions": {}
+}
