@@ -107,3 +107,7 @@ data/output/audit_ledger.jsonl
 data/output/audit_ledger_DEMO.jsonl
 data/output/audit_keys/
 data/output/audit_keys_DEMO/
+app_logcat*.txt
+build_log.txt
+gradlew_out.txt
+
