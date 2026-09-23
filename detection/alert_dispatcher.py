@@ -31,7 +31,8 @@ def _ensure_utf8() -> None:
 
 
 def dispatch(alert: RiskAlert, kafka_topic: Optional[str] = "risk_alerts",
-             band: Optional[str] = None, auto_act: bool = True) -> None:
+             band: Optional[str] = None, auto_act: bool = True,
+             store: Optional[Any] = None) -> None:
     """Format the RiskAlert for a human investigator, persist it, and (if
     `auto_act`) run the tiered automated response + write a signed audit entry.
 
@@ -69,7 +70,8 @@ def dispatch(alert: RiskAlert, kafka_topic: Optional[str] = "risk_alerts",
 
     try:
         from shared.persistence import Store
-        Store().save_alert(alert, resolved_band)
+        s = store or Store()
+        s.save_alert(alert, resolved_band)
     except Exception as e:  # persistence must never crash the alert path
         log.warning(f"Persistence failed (continuing): {e}")
 
@@ -79,7 +81,8 @@ def dispatch(alert: RiskAlert, kafka_topic: Optional[str] = "risk_alerts",
         print(f"  AUTO-RESPONSE: [{decision.tier}] {decision.justification}")
         try:
             from shared.persistence import Store
-            Store().save_intervention(alert.complaint_id, decision)
+            s = store or Store()
+            s.save_intervention(alert.complaint_id, decision)
         except Exception as e:
             log.warning(f"Persistence of intervention failed (continuing): {e}")
     except Exception as e:  # auto-intervention must never crash the alert path

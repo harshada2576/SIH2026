@@ -213,7 +213,7 @@ def run_demo():
     print(f"  Summary:")
     print(f"    - SMS Delivery:    {sms_mode}")
     print(f"    - Email Delivery:  {email_mode}")
-    print(f"    - Mobile API:      LOCAL LAN COMPATIBLE (0.0.0.0:8080)")
+    print(f"    - Mobile API:      LOCAL LAN COMPATIBLE (0.0.0.0:5003)")
     print(f"    - Persistence:     SQLite (cybershield.db -> notifications table)\n")
 
 

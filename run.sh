@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # CyberShield — Predictive Cash Egress Interception Platform (SIH26184)
-# Unified Launcher Script for Android App & Backend Services
+# Unified Backend Services & Live Gateway Launcher
 # ==============================================================================
 
 set -e
@@ -31,18 +31,12 @@ else
     PYTHON="python"
 fi
 
-# Detect Android SDK
-export ANDROID_HOME="${ANDROID_HOME:-/home/seucra/Android/Sdk}"
-export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-if [ -d "$ANDROID_HOME/platform-tools" ]; then
-    export PATH="$PATH:$ANDROID_HOME/platform-tools"
-fi
-
 print_header() {
     echo -e "${BOLD}${CYAN}"
     echo "=================================================================="
     echo "  🛡️  CyberShield: Predictive Cash Egress Interception (SIH26184)"
-    echo "  Sole Frontend: Native Android Kotlin (Jetpack Compose)"
+    echo "  Backend Stack: FastAPI (5003) | Mock Bank (8001) | NCRP (8002)"
+    echo "  Live Gateway: https://sih.seucra.tech | wss://sih.seucra.tech/ws"
     echo "=================================================================="
     echo -e "${NC}"
 }
@@ -52,92 +46,62 @@ print_help() {
     echo "Usage: ./run.sh [COMMAND]"
     echo ""
     echo "Commands:"
-    echo "  app             Build, install, and launch the CyberShield Android App on connected phone (Default)"
-    echo "  server          Start complete backend stack (Mock APIs + FastAPI + mDNS/UDP Discovery on 0.0.0.0:8080)"
+    echo "  server          Start complete backend stack & Cloudflare tunnel (Default)"
     echo "  backend         Alias for 'server'"
-    echo "  demo            Run full E2E demo scenario in terminal and dispatch live alert to phones"
-    echo "  pipeline        Start local Kafka (Docker), pipeline consumer, and detection scorer"
-    echo "  test            Run all pytest verification, discovery, and integration tests"
-    echo "  all             Build & launch Android app + run background backend server stack"
+    echo "  demo            Run Phase 2 E2E demo scenario in terminal"
+    echo "  test            Run full pytest test suite (145 tests)"
+    echo "  pipeline        Start local Kafka pipeline and stream synthetic transactions"
+    echo "  app             Build and deploy Android APK to connected device via ADB"
     echo "  help            Show this help menu"
     echo ""
 }
 
-check_device() {
-    log_info "Checking for connected Android device via ADB..."
-    if ! command -v adb &>/dev/null; then
-        log_error "adb command not found. Please ensure Android platform-tools is installed."
-        return 1
-    fi
-
-    DEVICE_STATE=$(adb get-state 2>/dev/null || echo "offline")
-    if [ "$DEVICE_STATE" != "device" ]; then
-        log_warn "Device status: $DEVICE_STATE"
-        log_info "Listing attached devices:"
-        adb devices
-        echo ""
-        log_warn "If 'unauthorized', please unlock your phone and tap 'Allow USB debugging'."
-        log_warn "Waiting up to 5s for device authorization..."
-        for i in {1..5}; do
-            if [ "$(adb get-state 2>/dev/null)" = "device" ]; then
-                DEVICE_STATE="device"
-                break
-            fi
-            sleep 1
-        done
-    fi
-
-    if [ "$DEVICE_STATE" = "device" ]; then
-        DEVICE_MODEL=$(adb shell getprop ro.product.model 2>/dev/null || echo "Android Device")
-        log_success "Connected device detected: ${BOLD}$DEVICE_MODEL${NC}"
-        return 0
-    else
-        log_warn "No authorized Android device connected over USB."
-        return 1
-    fi
-}
-
-build_and_launch_android() {
-    log_info "Building CyberShield Android App..."
-    cd "$REPO_ROOT/CyberShield"
-    chmod +x gradlew
-    ./gradlew assembleDebug
-
-    APK_PATH="$REPO_ROOT/CyberShield/app/build/outputs/apk/debug/app-debug.apk"
-    if [ ! -f "$APK_PATH" ]; then
-        log_error "APK not found at $APK_PATH"
-        exit 1
-    fi
-    log_success "Debug APK built successfully at $APK_PATH"
-
-    cd "$REPO_ROOT"
-    if check_device; then
-        log_info "Installing APK to connected device..."
-        adb install -r "$APK_PATH"
-        log_success "APK successfully installed."
-
-        log_info "Launching CyberShield (MainActivity)..."
-        adb shell am start -n "com.i4c.cybershield/.MainActivity"
-        log_success "🚀 CyberShield is now running on your mobile device!"
-    else
-        log_info "Debug APK is ready for deployment: $APK_PATH"
-        log_info "To install on any Android phone, run: adb install -r $APK_PATH"
-    fi
-}
-
 run_server() {
-    log_info "Starting Mock Bank API (port 8001) and Mock NCRP/I4C API (port 8002)..."
+    # 1. Cloudflare Tunnel (sih.seucra.tech -> localhost:5003)
+    PID_CF=""
+    if command -v cloudflared &>/dev/null; then
+        if pgrep -f "cloudflared tunnel" &>/dev/null; then
+            log_success "Cloudflare tunnel is already active."
+        else
+            log_info "Starting Cloudflare tunnel in background (sih.seucra.tech -> localhost:5003)..."
+            cloudflared tunnel run >/dev/null 2>&1 &
+            PID_CF=$!
+            sleep 1
+            log_success "Cloudflare tunnel started (PID: $PID_CF)."
+        fi
+    else
+        log_warn "cloudflared binary not found; running on local LAN only."
+    fi
+
+    # 2. Mock Services (Bank on 8001, NCRP/I4C on 8002)
+    log_info "Starting Mock Bank API (port 8001) & Mock NCRP/I4C API (port 8002)..."
     $PYTHON -m mock_services.bank_api.server &
     PID_BANK=$!
     $PYTHON -m mock_services.ncrp_i4c_api.server &
     PID_NCRP=$!
 
-    trap "kill $PID_BANK $PID_NCRP 2>/dev/null || true" EXIT
+    cleanup() {
+        echo ""
+        log_info "Shutting down backend services..."
+        kill $PID_BANK $PID_NCRP 2>/dev/null || true
+        if [ -n "$PID_CF" ]; then
+            kill $PID_CF 2>/dev/null || true
+        fi
+        log_success "All backend services stopped cleanly."
+    }
+    trap cleanup EXIT INT TERM
 
     sleep 1
-    log_success "Mock services active (Bank API: 8001, NCRP/I4C: 8002)"
-    log_info "Starting CyberShield FastAPI, WebSocket & Discovery server on 0.0.0.0:8080..."
-    $PYTHON -m api.server 8080
+    log_success "Mock services active:"
+    echo "  - Mock Bank API:   http://127.0.0.1:8001"
+    echo "  - Mock NCRP / I4C: http://127.0.0.1:8002"
+    echo ""
+    log_success "Live Cloudflare Gateway:"
+    echo "  - HTTPS API:       https://sih.seucra.tech"
+    echo "  - WebSocket:       wss://sih.seucra.tech/ws"
+    echo ""
+    log_info "Starting CyberShield FastAPI, WebSocket & Discovery server on 0.0.0.0:5003..."
+    $PYTHON -m api.server 5003
 }
 
 run_demo() {
@@ -160,20 +124,41 @@ run_pipeline() {
     $PYTHON detection/scorer.py &
     PID_SCORER=$!
 
-    trap "kill $PID_CONSUMER $PID_SCORER 2>/dev/null || true" EXIT
+    trap "kill $PID_CONSUMER $PID_SCORER 2>/dev/null || true" EXIT INT TERM
 
     log_info "Producing live synthetic transactions..."
     $PYTHON data-generator/producer.py
 }
 
-# Main routing
-CMD="${1:-app}"
+build_and_launch_android() {
+    log_info "Building CyberShield Android App..."
+    cd "$REPO_ROOT/CyberShield"
+    chmod +x gradlew
+    ./gradlew assembleDebug
+
+    APK_PATH="$REPO_ROOT/CyberShield/app/build/outputs/apk/debug/app-debug.apk"
+    if [ ! -f "$APK_PATH" ]; then
+        log_error "APK not found at $APK_PATH"
+        exit 1
+    fi
+    log_success "Debug APK built successfully at $APK_PATH"
+
+    cd "$REPO_ROOT"
+    if command -v adb &>/dev/null && [ "$(adb get-state 2>/dev/null)" = "device" ]; then
+        log_info "Installing APK to connected device..."
+        adb install -r "$APK_PATH"
+        log_success "APK successfully installed."
+        log_info "Launching CyberShield (MainActivity)..."
+        adb shell am start -n "com.i4c.cybershield/.MainActivity"
+    else
+        log_info "Debug APK ready at $APK_PATH"
+    fi
+}
+
+# Main routing (default to 'server')
+CMD="${1:-server}"
 
 case "$CMD" in
-    app)
-        print_header
-        build_and_launch_android
-        ;;
     server|backend)
         print_header
         run_server
@@ -190,11 +175,15 @@ case "$CMD" in
         print_header
         run_pipeline
         ;;
+    app)
+        print_header
+        build_and_launch_android
+        ;;
     all)
         print_header
         build_and_launch_android
         echo ""
-        log_info "Starting complete backend stack & discovery..."
+        log_info "Starting complete backend stack..."
         run_server
         ;;
     help|--help|-h)
@@ -206,3 +195,4 @@ case "$CMD" in
         exit 1
         ;;
 esac
+

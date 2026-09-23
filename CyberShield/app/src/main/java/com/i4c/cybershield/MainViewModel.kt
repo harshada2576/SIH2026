@@ -318,7 +318,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         connectionManager.startDiscovery()
     }
 
-    fun setManualHost(host: String, port: Int = 8080) {
+    fun setManualHost(host: String, port: Int = 5003) {
         connectionManager.setManualHost(host, port)
     }
 

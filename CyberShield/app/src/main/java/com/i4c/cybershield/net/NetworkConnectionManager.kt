@@ -45,7 +45,10 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
 
     companion object {
         private const val TAG = "CyberShieldNet"
-        private const val DEFAULT_PORT = 8080
+        const val PRIMARY_PUBLIC_URL = "https://sih.seucra.tech"
+        const val PRIMARY_WS_URL = "wss://sih.seucra.tech/ws"
+        const val PRIMARY_HOST = "sih.seucra.tech"
+        private const val DEFAULT_PORT = 5003
         private const val UDP_DISCOVERY_PORT = 8888
         private const val NSD_SERVICE_TYPE = "_cybershield._tcp."
 
@@ -72,19 +75,19 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
     val connectionStateFlow: kotlinx.coroutines.flow.StateFlow<ConnectionState> = _connectionState
     val connectionState: ConnectionState get() = _connectionState.value
 
-    private val _activeHost = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    private val _activeHost = kotlinx.coroutines.flow.MutableStateFlow<String?>(PRIMARY_HOST)
     val activeHostFlow: kotlinx.coroutines.flow.StateFlow<String?> = _activeHost
     val activeHost: String? get() = _activeHost.value
 
-    private val _activePort = kotlinx.coroutines.flow.MutableStateFlow(DEFAULT_PORT)
+    private val _activePort = kotlinx.coroutines.flow.MutableStateFlow(443)
     val activePortFlow: kotlinx.coroutines.flow.StateFlow<Int> = _activePort
     val activePort: Int get() = _activePort.value
 
-    private val _baseUrl = kotlinx.coroutines.flow.MutableStateFlow("http://127.0.0.1:$DEFAULT_PORT")
+    private val _baseUrl = kotlinx.coroutines.flow.MutableStateFlow(PRIMARY_PUBLIC_URL)
     val baseUrlFlow: kotlinx.coroutines.flow.StateFlow<String> = _baseUrl
     val baseUrl: String get() = _baseUrl.value
 
-    private val _wsUrl = kotlinx.coroutines.flow.MutableStateFlow("ws://127.0.0.1:$DEFAULT_PORT/ws")
+    private val _wsUrl = kotlinx.coroutines.flow.MutableStateFlow(PRIMARY_WS_URL)
     val wsUrlFlow: kotlinx.coroutines.flow.StateFlow<String> = _wsUrl
     val wsUrl: String get() = _wsUrl.value
 
@@ -119,23 +122,31 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
     }
 
     /**
-     * Start backend discovery across mDNS, UDP broadcast, and gateway probes.
+     * Start backend discovery: Prioritizes Cloudflare Tunnel, falls back to LAN discovery (mDNS, UDP broadcast, gateway probes).
      */
     fun startDiscovery() {
-        if (connectionState == ConnectionState.CONNECTED && verifyHealthSync(activeHost, activePort)) {
+        if (connectionState == ConnectionState.CONNECTED && verifyHealthUrlSync(baseUrl)) {
             Log.d(TAG, "Already connected to healthy backend: $baseUrl")
             return
         }
 
         isIntentionalDisconnect = false
         _connectionState.value = ConnectionState.DISCOVERING
-        _statusMessage.value = "Searching for laptop backend on Wi-Fi..."
+        _statusMessage.value = "Connecting to CyberShield backend..."
 
         discoveryJob?.cancel()
         discoveryJob = scope.launch {
+            // 1. Primary fast check: Cloudflare Tunnel endpoint
+            if (verifyHealthUrl(PRIMARY_PUBLIC_URL)) {
+                withContext(Dispatchers.Main) {
+                    onBackendResolved(PRIMARY_PUBLIC_URL, PRIMARY_WS_URL, PRIMARY_HOST, 443, "Cloudflare Tunnel")
+                }
+                return@launch
+            }
+
             acquireMulticastLock()
 
-            // Launch parallel discovery strategies concurrently:
+            // 2. Fallback: Local LAN discovery strategies concurrently
             val p1 = launch { probeSubnetAndGateways() }
             val p2 = launch { probeUdpBroadcast() }
             val p3 = launch { startNsdDiscovery() }
@@ -154,42 +165,51 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
 
             if (connectionState != ConnectionState.CONNECTED) {
                 _connectionState.value = ConnectionState.BACKEND_NOT_FOUND
-                _statusMessage.value = "Backend not found on local Wi-Fi. (Tap to retry or enter manual IP)"
+                _statusMessage.value = "Backend not reachable. (Tap to retry or configure endpoint)"
             }
         }
     }
 
     /**
-     * Set explicit manual host and port (Fallback).
+     * Set explicit manual host and port or URL (Fallback).
      */
-    fun setManualHost(host: String, port: Int = DEFAULT_PORT) {
+    fun setManualHost(hostOrUrl: String, port: Int = DEFAULT_PORT) {
         scope.launch {
-            _statusMessage.value = "Testing connection to $host:$port..."
+            val isFullUrl = hostOrUrl.startsWith("http://") || hostOrUrl.startsWith("https://")
+            val targetBaseUrl = if (isFullUrl) hostOrUrl.trimEnd('/') else "http://$hostOrUrl:$port"
+            val targetWsUrl = if (isFullUrl) {
+                if (hostOrUrl.startsWith("https://")) "wss://${hostOrUrl.removePrefix("https://").trimEnd('/')}/ws"
+                else "ws://${hostOrUrl.removePrefix("http://").trimEnd('/')}/ws"
+            } else "ws://$hostOrUrl:$port/ws"
+
+            _statusMessage.value = "Testing connection to $targetBaseUrl..."
             _connectionState.value = ConnectionState.RECONNECTING
-            if (verifyHealth(host, port)) {
-                onBackendResolved(host, port, "Manual configuration")
+            if (verifyHealthUrl(targetBaseUrl)) {
+                withContext(Dispatchers.Main) {
+                    onBackendResolved(targetBaseUrl, targetWsUrl, hostOrUrl, port, "Manual configuration")
+                }
             } else {
-                _statusMessage.value = "Could not connect to $host:$port"
+                _statusMessage.value = "Could not connect to $targetBaseUrl"
                 _connectionState.value = ConnectionState.BACKEND_NOT_FOUND
             }
         }
     }
 
     /**
-     * Called when a valid backend candidate IP & port are discovered.
+     * Called when a valid backend candidate is discovered.
      */
-    private fun onBackendResolved(host: String, port: Int, discoveryMethod: String) {
-        if (connectionState == ConnectionState.CONNECTED) {
+    fun onBackendResolved(targetBaseUrl: String, targetWsUrl: String, host: String, port: Int, discoveryMethod: String) {
+        if (connectionState == ConnectionState.CONNECTED && baseUrl == targetBaseUrl) {
             return
         }
 
         _activeHost.value = host
         _activePort.value = port
-        _baseUrl.value = "http://$host:$port"
-        _wsUrl.value = "ws://$host:$port/ws"
+        _baseUrl.value = targetBaseUrl
+        _wsUrl.value = targetWsUrl
         _connectionState.value = ConnectionState.CONNECTED
-        _statusMessage.value = "Connected to $host:$port ($discoveryMethod)"
-        Log.i(TAG, "Backend connected at $baseUrl via $discoveryMethod")
+        _statusMessage.value = "Connected via $discoveryMethod"
+        Log.i(TAG, "Backend connected at $targetBaseUrl ($targetWsUrl) via $discoveryMethod")
 
         stopNsdDiscovery()
         releaseMulticastLock()
@@ -200,6 +220,10 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
 
         // Start periodic health monitor
         startHealthMonitor()
+    }
+
+    private fun onBackendResolved(host: String, port: Int, discoveryMethod: String) {
+        onBackendResolved("http://$host:$port", "ws://$host:$port/ws", host, port, discoveryMethod)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -467,19 +491,19 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
     // ─────────────────────────────────────────────────────────────────────────
     // Health Verification (GET /health)
     // ─────────────────────────────────────────────────────────────────────────
-    private suspend fun verifyHealth(host: String?, port: Int): Boolean = withContext(Dispatchers.IO) {
-        if (host.isNullOrBlank()) return@withContext false
-        verifyHealthSync(host, port)
+    suspend fun verifyHealthUrl(targetUrl: String): Boolean = withContext(Dispatchers.IO) {
+        verifyHealthUrlSync(targetUrl)
     }
 
-    private fun verifyHealthSync(host: String?, port: Int): Boolean {
-        if (host.isNullOrBlank()) return false
+    fun verifyHealthUrlSync(targetUrl: String): Boolean {
+        if (targetUrl.isBlank()) return false
         var conn: HttpURLConnection? = null
         return try {
-            val url = URL("http://$host:$port/health")
+            val endpoint = if (targetUrl.endsWith("/health")) targetUrl else "${targetUrl.trimEnd('/')}/health"
+            val url = URL(endpoint)
             conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 1200
-                readTimeout = 1500
+                connectTimeout = 2500
+                readTimeout = 2500
                 requestMethod = "GET"
             }
             val code = conn.responseCode
@@ -493,6 +517,23 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
         } finally {
             conn?.disconnect()
         }
+    }
+
+    private suspend fun verifyHealth(host: String?, port: Int): Boolean = withContext(Dispatchers.IO) {
+        if (host.isNullOrBlank()) return@withContext false
+        if (host.startsWith("http://") || host.startsWith("https://")) {
+            verifyHealthUrlSync(host)
+        } else {
+            verifyHealthSync(host, port)
+        }
+    }
+
+    private fun verifyHealthSync(host: String?, port: Int): Boolean {
+        if (host.isNullOrBlank()) return false
+        if (host.startsWith("http://") || host.startsWith("https://")) {
+            return verifyHealthUrlSync(host)
+        }
+        return verifyHealthUrlSync("http://$host:$port")
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -560,7 +601,7 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
             var consecutiveFailures = 0
             while (isActive && connectionState == ConnectionState.CONNECTED) {
                 delay(8000)
-                val healthy = verifyHealth(activeHost, activePort)
+                val healthy = verifyHealthUrlSync(baseUrl)
                 if (healthy) {
                     consecutiveFailures = 0
                 } else {
@@ -568,7 +609,7 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
                     Log.w(TAG, "Health check failed (attempt $consecutiveFailures/3)")
                     if (consecutiveFailures >= 3) {
                         _connectionState.value = ConnectionState.RECONNECTING
-                        _statusMessage.value = "Connection lost. Rediscovering backend..."
+                        _statusMessage.value = "Connection lost. Reconnecting..."
                         startDiscovery()
                         break
                     }
