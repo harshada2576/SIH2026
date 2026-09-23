@@ -83,6 +83,9 @@ signing-config.json
 logs/
 hs_err_pid*.log
 replay_pid*.log
+app_logcat*.txt
+build_log.txt
+gradlew_out.txt
 
 # ==========================================
 # Data Volumes, Runtime DBs & Audit Outputs
