@@ -247,10 +247,19 @@ def _marker(t: dict, confidence: int, window: str, risk: str) -> dict:
 
 def _nearby(target: dict, terminals: List[dict], limit: int = 5) -> List[dict]:
     lat, lon = float(target.get("latitude") or 0), float(target.get("longitude") or 0)
+    target_id = target.get("terminal_id") or target.get("id")
+    # Quick bounding box filter (+/- 0.35 deg approx 40km)
+    candidates = [
+        t for t in terminals
+        if t.get("terminal_id") != target_id
+        and abs(float(t.get("latitude") or 0) - lat) < 0.35
+        and abs(float(t.get("longitude") or 0) - lon) < 0.35
+    ]
+    if not candidates:
+        candidates = [t for t in terminals if t.get("terminal_id") != target_id][:50]
+        
     scored = []
-    for t in terminals:
-        if t.get("terminal_id") == target.get("terminal_id"):
-            continue
+    for t in candidates:
         km = _haversine_km(lat, lon, float(t.get("latitude") or 0), float(t.get("longitude") or 0))
         scored.append((km, t))
     scored.sort(key=lambda x: x[0])
@@ -319,7 +328,9 @@ def _load_csv(graph: GraphStore) -> None:
     txn_path = REPO_ROOT / "data-generator" / "data" / "transactions.csv"
     if acc_path.exists():
         with open(acc_path, encoding="utf-8") as f:
-            for row in csv.DictReader(f):
+            for i, row in enumerate(csv.DictReader(f)):
+                if i > 1000:
+                    break
                 aid = row.get("account_id") or ""
                 if not aid:
                     continue
@@ -336,7 +347,7 @@ def _load_csv(graph: GraphStore) -> None:
     if txn_path.exists():
         with open(txn_path, encoding="utf-8") as f:
             for i, row in enumerate(csv.DictReader(f)):
-                if i > 4000:
+                if i > 500:
                     break
                 try:
                     graph.add_transaction(TransactionEvent.from_dict(row))

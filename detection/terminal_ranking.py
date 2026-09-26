@@ -104,21 +104,37 @@ def rank_terminals(
         for t in set(graph.historical_terminal_ids(m)):
             hist_members[t] += 1
 
+    meta: Optional[AccountNodeMetadata] = graph.get_account_metadata(account_id)
+
+    candidate_terminals = terminals
+    if len(terminals) > 100 and anchor:
+        must_include_ids = set(freq.keys()) | set(hist_members.keys())
+        pin = meta.district_pincode if (meta and meta.district_pincode) else None
+        
+        filtered = [
+            t for t in terminals
+            if t.terminal_id in must_include_ids
+            or (pin and t.district_pincode == pin)
+            or (abs(t.latitude - anchor[0]) < 0.50 and abs(t.longitude - anchor[1]) < 0.50)
+        ]
+        if len(filtered) >= 10:
+            candidate_terminals = filtered
+        else:
+            candidate_terminals = terminals[:150]
+
     max_freq = max(freq.values()) if freq else 0
     max_dist = 0.0
     distances: Dict[str, float] = {}
     if anchor:
-        for t in terminals:
+        for t in candidate_terminals:
             d = _haversine_km(anchor[0], anchor[1], t.latitude, t.longitude)
             distances[t.terminal_id] = d
             max_dist = max(max_dist, d)
     if max_dist <= 0:
         max_dist = 1.0  # guard against zero-distance division
 
-    meta: Optional[AccountNodeMetadata] = graph.get_account_metadata(account_id)
-
     scores: List[TerminalScore] = []
-    for t in terminals:
+    for t in candidate_terminals:
         c: Dict[str, float] = {}
 
         c["history"] = (30.0 * freq.get(t.terminal_id, 0) / max_freq) if max_freq else 0.0

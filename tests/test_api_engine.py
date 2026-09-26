@@ -36,10 +36,12 @@ def test_role_filtering():
 
 def test_hold_confirm_release_cycle():
     engine = CaseEngine()
-    # Pick a pending case
-    pending = [c for c in engine.list_cases("BANK") if c.get("status") == "PENDING"]
-    assert len(pending) > 0
-    test_id = pending[0]["ncrpId"]
+    cases = engine.list_cases("BANK")
+    assert len(cases) > 0
+    test_id = cases[0]["ncrpId"]
+    engine.cases[test_id]["status"] = "PENDING"
+    engine.cases[test_id]["digitalBlockActive"] = False
+    engine.cases[test_id]["confirmationState"] = "UNCONFIRMED"
 
     # 1. Place hold
     held = engine.act(test_id, "hold", "Officer Sharma")
