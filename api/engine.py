@@ -41,6 +41,7 @@ PLAIN = {
     "geo_velocity": ("Impossible travel between two locations", "The same card/account was used in two cities faster than anyone can travel."),
     "identity_cluster": ("Many accounts opened on one identity", "A cluster of accounts share one KYC identity — typical mule-ring behaviour."),
     "ml_anomaly": ("Unusual behaviour for this account", "Current activity does not match this account's normal pattern."),
+    "smurfing_subgraph": ("Structured micro-smurfing split across accounts", "Funds were deliberately split into sub-threshold chunks across intermediate accounts to evade velocity limits."),
 }
 
 PIN_LABEL = {
@@ -641,6 +642,7 @@ class CaseEngine:
             "summary": summary,
             "targetTerminal": marker,
             "nearbyTerminals": nearby,
+            "corridor": alert.corridor.to_dict() if (alert and hasattr(alert, "corridor") and alert.corridor) else None,
             "moneyTrail": _trail(self.graph, account_id, marker["id"]),
             "riskBreakdown": {"totalPercent": int(round(ev.score)), "signals": signals[:8]},
             "complaintId": None,

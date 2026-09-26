@@ -13,19 +13,21 @@ from detection.rules import (
     identity_cluster_rule,
     layering_rule,
     ml_anomaly_rule,
+    smurfing_subgraph_rule,
     terminal_affinity_rule,
     velocity_rule,
 )
 
 # name -> (evaluate function, human label) for the scorer to run + explain.
-# Phase 2 additions: geo_velocity, identity_cluster, ml_anomaly (see
-# detection/scorer.py WEIGHTS for the rebalanced 11-rule weight table).
+# Phase 2 additions: geo_velocity, identity_cluster, ml_anomaly, smurfing_subgraph (see
+# detection/scorer.py WEIGHTS for the rebalanced 12-rule weight table).
 RULES: Dict[str, Callable] = {
     "velocity": velocity_rule.evaluate,
     "fan_in": fan_in_rule.evaluate,
     "fan_out": fan_out_rule.evaluate,
     "layering": layering_rule.evaluate,
     "amount_movement": amount_movement_rule.evaluate,
+    "smurfing_subgraph": smurfing_subgraph_rule.evaluate,
     "account_age": account_age_rule.evaluate,
     "device_fingerprint": device_fingerprint_rule.evaluate,
     "terminal_affinity": terminal_affinity_rule.evaluate,
