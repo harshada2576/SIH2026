@@ -563,6 +563,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         showToast("Cash-out attempt recorded for police.")
     }
 
+    /**
+     * Cash Re-trace — re-runs the money-trail computation for THIS case's
+     * own account/terminal only, using its own caseId. Never touches any
+     * other case. Always ends with an audit-log entry and a UI refresh,
+     * whether the backend is reachable or we fall back to local state.
+     */
+    fun cashRetrace(ncrpId: String) {
+        val current = caseById(ncrpId) ?: return
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { api.act(ncrpId, "retrace", officerName) }
+            }.onSuccess { updated ->
+                replaceCase(updated)
+                addAuditEntry(
+                    officerName, ncrpId,
+                    "Cash withdrawal route re-traced for case $ncrpId",
+                    updated.targetTerminal.bankName, updated.status
+                )
+            }.onFailure {
+                // Offline demo fallback: re-derive this case's OWN trail from
+                // its OWN data (never borrows another case's trail/terminal).
+                val refreshedTimestamp = currentTimeLabel()
+                val retraced = current.copy(
+                    moneyTrail = current.moneyTrail.copy(
+                        edges = current.moneyTrail.edges.map { it.copy(timestamp = refreshedTimestamp) }
+                    ),
+                    evidence = (current.evidence + "Cash re-trace re-confirmed route to ${current.targetTerminal.id}").distinct()
+                )
+                replaceCase(retraced)
+                addAuditEntry(
+                    officerName, ncrpId,
+                    "Cash withdrawal route re-traced for case $ncrpId",
+                    current.targetTerminal.bankName, current.status
+                )
+            }
+            showToast("Cash re-trace completed for ${current.ncrpId}.")
+        }
+    }
+
+    /**
+     * Re-send — re-dispatches this case's evidence/alert pack to the
+     * receiving police unit. Scoped strictly to [ncrpId]; does not change
+     * the case's status, but is always recorded as its own audit event.
+     */
+    fun resendCase(ncrpId: String) {
+        val current = caseById(ncrpId) ?: return
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { api.act(ncrpId, "resend", officerName) }
+            }.onSuccess { updated ->
+                replaceCase(updated)
+                addAuditEntry(
+                    officerName, ncrpId,
+                    "Case re-sent to ${updated.targetTerminal.bankName} / local police unit",
+                    updated.targetTerminal.bankName, updated.status
+                )
+            }.onFailure {
+                addAuditEntry(
+                    officerName, ncrpId,
+                    "Case re-sent to ${current.targetTerminal.bankName} / local police unit",
+                    current.targetTerminal.bankName, current.status
+                )
+            }
+            showToast("Case re-sent for ${current.ncrpId}.")
+        }
+    }
+
+    /**
+     * Resolve — closes out a forwarded case from the police queue. Only
+     * the targeted case's status changes; every other case is untouched
+     * because [runAction]/[replaceCase] key strictly off [ncrpId].
+     */
+    fun resolveCase(ncrpId: String) {
+        if (caseById(ncrpId) == null) return
+        runAction(ncrpId, "resolve", ActionStatus.RELEASED)
+        showToast("Case marked resolved.")
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     //  AUDIT LOG
     // ═══════════════════════════════════════════════════════════════════

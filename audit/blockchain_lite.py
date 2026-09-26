@@ -118,6 +118,21 @@ class AuditLedger:
         return blocks
 
     def _last_block(self) -> Optional[Block]:
+        if not self.ledger_path.exists():
+            return None
+        try:
+            with open(self.ledger_path, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                if size == 0:
+                    return None
+                buffer_size = min(4096, size)
+                f.seek(size - buffer_size)
+                lines = f.read().decode("utf-8", errors="ignore").strip().splitlines()
+                if lines:
+                    return Block.from_dict(json.loads(lines[-1]))
+        except Exception:
+            pass
         blocks = self._read_blocks()
         return blocks[-1] if blocks else None
 

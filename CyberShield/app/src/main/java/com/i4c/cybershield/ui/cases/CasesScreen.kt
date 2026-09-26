@@ -55,7 +55,12 @@ fun CasesScreen(
         } else {
             allCases.filter { it.status == ActionStatus.APPROVED || it.status == ActionStatus.EN_ROUTE }
         }
-        QueueFilter.RESOLVED -> allCases.filterNot { it.status == ActionStatus.PENDING }
+        // A case is only "Resolved" once it has reached a terminal state.
+        // Cases still awaiting action (PENDING) or still active/forwarded
+        // (APPROVED / EN_ROUTE / BANK_HOLD) must NOT show up here.
+        QueueFilter.RESOLVED -> allCases.filter {
+            it.status == ActionStatus.DISMISSED || it.status == ActionStatus.RELEASED
+        }
         QueueFilter.ALL -> allCases
     }
 

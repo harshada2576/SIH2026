@@ -143,7 +143,13 @@ fun CyberShieldNavGraph(
                         navController.popBackStack()
                     },
                     onFileComplaint = { viewModel.fileComplaint(ncrpId) },
-                    onSimulateWithdraw = { viewModel.simulateWithdraw(ncrpId) }
+                    onSimulateWithdraw = { viewModel.simulateWithdraw(ncrpId) },
+                    onCashRetrace = { viewModel.cashRetrace(ncrpId) },
+                    onResend = { viewModel.resendCase(ncrpId) },
+                    onResolve = {
+                        viewModel.resolveCase(ncrpId)
+                        navController.popBackStack()
+                    }
                 )
             }
         }

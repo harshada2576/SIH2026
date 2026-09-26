@@ -47,7 +47,10 @@ fun CaseDetailScreen(
     onDismissFalsePositive: () -> Unit,
     onReleaseAfterConfirmation: () -> Unit,
     onFileComplaint: () -> Unit = {},
-    onSimulateWithdraw: () -> Unit = {}
+    onSimulateWithdraw: () -> Unit = {},
+    onCashRetrace: () -> Unit = {},
+    onResend: () -> Unit = {},
+    onResolve: () -> Unit = {}
 ) {
     Column(modifier = Modifier.fillMaxSize().background(BgDeepSlate)) {
         // ─── Top Bar ────────────────────────────────────────────────
@@ -103,7 +106,10 @@ fun CaseDetailScreen(
                 onDismissFalsePositive = onDismissFalsePositive,
                 onReleaseAfterConfirmation = onReleaseAfterConfirmation,
                 onFileComplaint = onFileComplaint,
-                onSimulateWithdraw = onSimulateWithdraw
+                onSimulateWithdraw = onSimulateWithdraw,
+                onCashRetrace = onCashRetrace,
+                onResend = onResend,
+                onResolve = onResolve
             )
         }
     }
@@ -566,7 +572,10 @@ private fun DecisionBar(
     onDismissFalsePositive: () -> Unit,
     onReleaseAfterConfirmation: () -> Unit,
     onFileComplaint: () -> Unit,
-    onSimulateWithdraw: () -> Unit
+    onSimulateWithdraw: () -> Unit,
+    onCashRetrace: () -> Unit = {},
+    onResend: () -> Unit = {},
+    onResolve: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -628,6 +637,78 @@ private fun DecisionBar(
                     colors = ButtonDefaults.buttonColors(containerColor = AlertOrange, contentColor = TextOffWhite)
                 ) {
                     Text("Record cash-out attempt at this ATM", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onCashRetrace,
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MediumCyan),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(
+                            brush = Brush.linearGradient(colors = listOf(MediumCyan.copy(alpha = 0.6f), MediumCyan.copy(alpha = 0.2f)))
+                        )
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Cash Re-trace", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onResend,
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BorderTaupe),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(
+                            brush = Brush.linearGradient(colors = listOf(BorderTaupe.copy(alpha = 0.5f), BorderTaupe.copy(alpha = 0.2f)))
+                        )
+                    ) {
+                        Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Re-send", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                var showResolveConfirmation by remember { mutableStateOf(false) }
+                Button(
+                    onClick = { showResolveConfirmation = true },
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen, contentColor = BgDeepSlate)
+                ) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Resolve Case", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                if (showResolveConfirmation) {
+                    AlertDialog(
+                        onDismissRequest = { showResolveConfirmation = false },
+                        containerColor = SurfaceCharcoal,
+                        titleContentColor = TextOffWhite,
+                        textContentColor = BorderTaupe,
+                        title = { Text("Resolve this case?") },
+                        text = {
+                            Text("This moves ${case.ncrpId} to the Resolved queue and records the closure in the activity log. Other cases are unaffected.")
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showResolveConfirmation = false
+                                    onResolve()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen, contentColor = BgDeepSlate)
+                            ) { Text("Resolve") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showResolveConfirmation = false }) { Text("Cancel", color = BorderTaupe) }
+                        }
+                    )
                 }
             } else if (status == ActionStatus.PENDING && userRole == UserRole.BANK_OFFICIAL) {
                 Text(

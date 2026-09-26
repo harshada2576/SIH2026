@@ -548,9 +548,113 @@ object MockDataRepository {
         leaNotificationSent = true
     )
 
+    // ─── Secondary Investigation Case — its OWN distinct trail/evidence ──
+    // Mirrors the NCRP-2026-994821 complaint (₹50L through 6 accounts into
+    // ATM-SBI-ND-042). Deliberately uses its OWN account IDs, hops,
+    // withdrawal attempts, timeline and risk signals so it can never be
+    // confused with primaryInvestigationCase's trail.
+    val secondaryDetailedHops = listOf(
+        DetailedTrailHop(
+            hopNumber = 1,
+            fromAccount = "ACC-VICTIM-4521",
+            toAccount = "ACC-MULE-C441",
+            amount = "₹50,00,000",
+            timestamp = "10:02:14 AM",
+            channel = "IMPS",
+            sourceTier = "Victim Account",
+            targetTier = "Layer-1 Mule",
+            flags = listOf("Sudden Outflow", "High Value")
+        ),
+        DetailedTrailHop(
+            hopNumber = 2,
+            fromAccount = "ACC-MULE-C441",
+            toAccount = "ACC-AGG-NODE-C",
+            amount = "₹49,60,000",
+            timestamp = "10:04:01 AM",
+            channel = "UPI",
+            sourceTier = "Layer-1 Mule",
+            targetTier = "Aggregator Node",
+            flags = listOf("Fan-In: 6 accounts", "Shared Device Fingerprint")
+        )
+    )
+
+    val secondaryWithdrawalAttempts = listOf(
+        RecordedWithdrawal(
+            attemptId = "ATTEMPT-WD-C441-01",
+            terminalId = "ATM-SBI-ND-042",
+            terminalName = "Sector 18 SBI ATM #042",
+            amount = "₹49,000",
+            timestamp = "10:34:50 AM",
+            status = WithdrawalAttemptStatus.BLOCKED,
+            channel = "ATM CASH DISPENSE",
+            failureReason = "Statutory lien active on ACC-AGG-NODE-C"
+        )
+    )
+
+    val secondaryTimelineEvents = listOf(
+        LocationTimelineEvent(
+            timestamp = "10:02:14 AM",
+            title = "Root Fraud Inflow",
+            description = "₹50,00,000 sent from ACC-VICTIM-4521 to ACC-MULE-C441 via IMPS.",
+            eventType = "ORIGIN"
+        ),
+        LocationTimelineEvent(
+            timestamp = "10:04:01 AM",
+            title = "Aggregator Node Convergence",
+            description = "₹49,60,000 reached ACC-AGG-NODE-C after fan-in from 6 accounts.",
+            eventType = "MULE_HOP"
+        ),
+        LocationTimelineEvent(
+            timestamp = "10:20:00 AM",
+            title = "NCRP Complaint Registered",
+            description = "Formal complaint NCRP-2026-994821 filed. Statutory lien and police dispatch triggered.",
+            eventType = "ACTION"
+        ),
+        LocationTimelineEvent(
+            timestamp = "10:34:50 AM",
+            title = "Cashout Blocked at ATM",
+            description = "Card withdrawal of ₹49,000 blocked by statutory lien at ATM-SBI-ND-042.",
+            eventType = "ATTEMPT"
+        )
+    )
+
+    val secondaryRiskBreakdown = RiskBreakdown(
+        totalPercent = 94,
+        signals = listOf(
+            RiskSignal("⚡", "Velocity Signal", 25, "₹50L moved in under 4 minutes", "velocity_rule"),
+            RiskSignal("🔀", "Topology / Fan-In Signal", 25, "6 accounts converged into ACC-AGG-NODE-C", "fan_in_rule"),
+            RiskSignal("📱", "Device Hash Match", 20, "Matches known mule ring C-441", "device_fingerprint_rule"),
+            RiskSignal("📍", "Spatial ATM Affinity", 24, "1.2 km from a prior confirmed cash-out", "terminal_affinity_rule")
+        )
+    )
+
+    val secondaryNearbyTerminals = listOf(
+        NearbyTerminal(id = "ATM-HDFC-ND-087", address = "DLF Mall of India, Sector 18 (0.34 km)", distanceKm = 0.34, type = TerminalType.BANK_ATM),
+        NearbyTerminal(id = "AEPS-PM-ND-118", address = "Shop 12, Atta Market, Sector 18 (0.21 km)", distanceKm = 0.21, type = TerminalType.AEPS_MICRO_ATM)
+    )
+
+    val secondaryRecurrence = TerminalRecurrence(
+        terminalId = "ATM-SBI-ND-042",
+        accountTarget = "ACC-AGG-NODE-C",
+        attemptsCount = 1,
+        escalationState = "ELEVATED_RISK",
+        riskMultiplier = 1.25
+    )
+
+    val secondaryConfirmation = TransactionConfirmationInfo(
+        txnId = "TXN-NCRP-8812",
+        payerAccount = "ACC-VICTIM-4521",
+        amount = "₹50,00,000",
+        status = ConfirmationStatus.CONFIRMED_FRAUD,
+        promptChannel = "SMS + CBS Push Notification",
+        requestedAt = "10:03:00 AM",
+        respondedAt = "10:03:40 AM",
+        explanatoryNote = "Victim flagged transfer as unauthorized OTP compromise within 40 seconds."
+    )
+
     val secondaryInvestigationCase = InvestigationCase(
         caseId = "CASE-NCRP-994821",
-        flaggedAccount = "ACC-AGG-03",
+        flaggedAccount = "ACC-AGG-NODE-C",
         lifecycle = CaseLifecycle.POST_COMPLAINT_ESCALATED,
         riskScorePercent = 94,
         confidencePercent = 92,
@@ -558,7 +662,7 @@ object MockDataRepository {
         targetTerminal = terminalMarkers[0],
         predictedWindow = "10:30 AM – 11:15 AM",
         summaryNarrative = "Formal complaint registered on NCRP portal. Full statutory lien and police dispatch en route.",
-        confirmation = primaryConfirmation,
+        confirmation = secondaryConfirmation,
         funds = SelectiveFundBreakdown(
             existingBalance = "₹45,000",
             suspiciousAmount = "₹50,00,000",
@@ -567,12 +671,12 @@ object MockDataRepository {
             holdReason = "Statutory lien under Section 106 BNSS / CFCFRMS",
             isPreComplaint = false
         ),
-        trailHops = primaryDetailedHops,
-        withdrawalAttempts = primaryWithdrawalAttempts,
-        timelineEvents = primaryTimelineEvents,
-        xaiBreakdown = primaryRiskBreakdown,
-        nearbyTerminals = primaryNearbyTerminals,
-        recurrence = primaryRecurrence,
+        trailHops = secondaryDetailedHops,
+        withdrawalAttempts = secondaryWithdrawalAttempts,
+        timelineEvents = secondaryTimelineEvents,
+        xaiBreakdown = secondaryRiskBreakdown,
+        nearbyTerminals = secondaryNearbyTerminals,
+        recurrence = secondaryRecurrence,
         bankHoldActive = true,
         atmBlockRequested = true,
         leaNotificationSent = true
@@ -583,8 +687,13 @@ object MockDataRepository {
         secondaryInvestigationCase
     )
 
-    fun getCaseById(caseId: String): InvestigationCase {
-        return allCases.firstOrNull { it.caseId == caseId } ?: primaryInvestigationCase
+    /**
+     * Look up an [InvestigationCase] by its own unique [caseId]. Returns
+     * null (never a different case) when there is no match, so callers can
+     * never silently be shown another case's data as a "fallback".
+     */
+    fun getCaseById(caseId: String): InvestigationCase? {
+        return allCases.firstOrNull { it.caseId == caseId }
     }
 
     // ─── Helper: get terminal color by risk ────────────────────────────
