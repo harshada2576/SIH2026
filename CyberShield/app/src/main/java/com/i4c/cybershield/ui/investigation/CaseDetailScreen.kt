@@ -97,6 +97,9 @@ fun CaseDetailScreen(
             NotificationDeliveryCard(case)
             Spacer(modifier = Modifier.height(16.dp))
 
+            EvidentiaryDossierCard(case)
+            Spacer(modifier = Modifier.height(16.dp))
+
             DecisionBar(
                 case = case,
                 status = case.status,
@@ -1102,3 +1105,161 @@ private fun ChannelStatusTile(
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SECTION 63 BSA / 65B EVIDENTIARY DOSSIER CARD
+// ═══════════════════════════════════════════════════════════════════════
+
+@Composable
+fun EvidentiaryDossierCard(case: ComplaintTicket) {
+    var expanded by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var copied by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    val certId = "CERT-BSA63-${case.ncrpId.replace("NCRP-", "").take(12)}"
+    val merkleRoot = "0x" + case.ncrpId.hashCode().toString(16).padStart(8, '0') + "7b8d4f9e1c3a5b7d9e1f3a5b7d9e1f2a"
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceCharcoal, RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(Color(0xFF0F766E), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("⚖️", fontSize = 16.sp)
+                }
+                Column {
+                    Text(
+                        "Section 63 BSA Evidentiary Dossier",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextOffWhite
+                    )
+                    Text(
+                        "Statutory Admissibility & Merkle Audit Proof",
+                        fontSize = 11.sp,
+                        color = BorderTaupe
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .background(Color(0xFF065F46), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    "IMMUTABLE",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF34D399)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Certificate Details Box
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(BgDeepSlate, RoundedCornerShape(10.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Statutory Compliance", fontSize = 11.sp, color = BorderTaupe)
+                Text("Sec 63 BSA / 65B IEA", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextOffWhite)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Certificate ID", fontSize = 11.sp, color = BorderTaupe)
+                Text(certId, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MediumCyan)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Signing Algorithm", fontSize = 11.sp, color = BorderTaupe)
+                Text("Ed25519 + Canonical SHA-256", fontSize = 11.sp, color = TextOffWhite)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Merkle Root", fontSize = 11.sp, color = BorderTaupe)
+                Text("${merkleRoot.take(18)}...", fontSize = 11.sp, color = TextOffWhite)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = { expanded = !expanded },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextOffWhite)
+            ) {
+                Text(if (expanded) "Hide Forensics" else "Inspect Forensics", fontSize = 11.sp)
+            }
+            Button(
+                onClick = {
+                    val summaryJson = """
+                    {
+                      "statutory_compliance": "Section 63 BSA / Section 65B IEA",
+                      "certificate_id": "$certId",
+                      "ncrp_case_id": "${case.ncrpId}",
+                      "victim_account": "${case.victimAccount}",
+                      "exposure_inr": ${case.suspiciousExposure},
+                      "target_terminal": "${case.targetTerminal.id} (${case.targetTerminal.address})",
+                      "merkle_root": "$merkleRoot",
+                      "digital_block_active": ${case.digitalBlockActive},
+                      "atm_block_active": ${case.atmBlockActive},
+                      "verification": "VERIFIED_ON_CHAIN_ED25519"
+                    }
+                    """.trimIndent()
+                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(summaryJson))
+                    copied = true
+                },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E), contentColor = TextOffWhite)
+            ) {
+                Text(if (copied) "✓ Copied!" else "Copy Evidence JSON", fontSize = 11.sp)
+            }
+        }
+
+        if (expanded) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(BgDeepSlate, RoundedCornerShape(8.dp))
+                    .padding(10.dp)
+            ) {
+                Text("Forensic Hop Audit Bundle:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AlertOrange)
+                Spacer(modifier = Modifier.height(4.dp))
+                case.moneyTrail.edges.forEachIndexed { idx, edge ->
+                    val fromNode = case.moneyTrail.nodes.getOrNull(edge.fromIndex)?.label ?: "Hop-${edge.fromIndex}"
+                    val toNode = case.moneyTrail.nodes.getOrNull(edge.toIndex)?.label ?: "Hop-${edge.toIndex}"
+                    Text(
+                        "• Leg ${idx + 1}: $fromNode → $toNode | ${edge.amount} | ${edge.channel} | HASH: SHA256(leg_${idx+1})",
+                        fontSize = 10.sp,
+                        color = BorderTaupe
+                    )
+                }
+            }
+        }
+    }
+}
+

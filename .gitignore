@@ -108,3 +108,4 @@ data/output/audit_ledger_DEMO.jsonl
 data/output/audit_keys/
 data/output/audit_keys_DEMO/
 data/output/merkle_audit/
+data/output/merkle_demo/

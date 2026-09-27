@@ -73,9 +73,37 @@ def main() -> None:
         for p in problems:
             print(f"  - {p}")
 
+    print("\n" + "=" * 72)
+    print("PART 3B — SPARSE MERKLE TREE (SMT) INCLUSION PROOF VERIFICATION")
+    print("=" * 72)
+    from audit.merkle_ledger import MerkleAuditLedger
+
+    demo_merkle_dir = DEFAULT_KEYS_DIR.parent / "merkle_demo"
+    if demo_merkle_dir.exists():
+        shutil.rmtree(demo_merkle_dir)
+
+    mledger = MerkleAuditLedger(ledger_dir=demo_merkle_dir)
+    block = mledger.commit_batch(sample_alerts)
+    print(f"  Committed Merkle Block #{block.block_index} with Root: {block.merkle_root[:24]}...")
+    print(f"  Leaves indexed: {block.leaf_count}")
+
+    # Verify inclusion proof for CMP-2026-000103
+    res = mledger.get_proof_for_case("CMP-2026-000103")
+    assert res is not None
+    mblock, proof = res
+    is_valid = proof.verify()
+    print(f"  [PROOF] SMT $O(\\log N)$ Inclusion Proof for CMP-2026-000103: {'VALID (VERIFIED)' if is_valid else 'INVALID'}")
+    print(f"  [PROOF] Sibling audit path depth: {len(proof.steps)} hashes")
+
+    # Simulate tampered proof
+    proof.leaf_hash = "0000000000000000000000000000000000000000000000000000000000000000"
+    is_tampered_valid = proof.verify()
+    print(f"  [TAMPER DETECTED] Tampered SMT leaf verification: {'PASSED (BUG)' if is_tampered_valid else 'REJECTED (PROOF FAILED)'}")
+
     print("\nDemo ledger: " + str(demo_ledger_path))
     print("(Run this again any time — it resets the demo ledger on each run.)")
 
 
 if __name__ == "__main__":
     main()
+

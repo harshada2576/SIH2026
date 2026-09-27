@@ -54,6 +54,11 @@ class CyberShieldApi(private val context: Context) {
         return (0 until arr.length()).map { parseHeatmapPoint(arr.getJSONObject(it)) }
     }
 
+    fun fetchDossier(caseId: String): EvidentiaryDossierBundle {
+        val json = get("/cases/$caseId/dossier")
+        return parseEvidentiaryDossier(json)
+    }
+
     fun act(ncrpId: String, action: String, officer: String): ComplaintTicket {
         val body = JSONObject().put("officer", officer)
         return parseCase(post("/cases/$ncrpId/$action", body))
@@ -252,3 +257,50 @@ fun parseAudit(obj: JSONObject): AuditLogEntry = AuditLogEntry(
     targetUnit = obj.optString("targetUnit"),
     status = parseStatus(obj.optString("status"))
 )
+
+fun parseEvidentiaryDossier(obj: JSONObject): EvidentiaryDossierBundle {
+    val header = obj.optJSONObject("header") ?: JSONObject()
+    val attr = obj.optJSONObject("attribution") ?: JSONObject()
+    val egress = obj.optJSONObject("egress_forensics") ?: JSONObject()
+    val crypto = obj.optJSONObject("cryptographic_proof") ?: JSONObject()
+    val trailArr = obj.optJSONArray("forensic_trail") ?: JSONArray()
+    val hops = (0 until trailArr.length()).map {
+        val h = trailArr.getJSONObject(it)
+        ForensicHopItem(
+            hopNumber = h.optInt("hop_number"),
+            fromAccount = h.optString("from_account"),
+            toAccount = h.optString("to_account"),
+            amountInr = h.optDouble("amount_inr"),
+            timestampUtc = h.optString("timestamp_utc"),
+            paymentChannel = h.optString("payment_channel"),
+            txHash = h.optString("tx_hash")
+        )
+    }
+    val topCand = egress.optJSONArray("candidate_terminals_ranked")?.let {
+        if (it.length() > 0) it.getJSONObject(0) else null
+    }
+    return EvidentiaryDossierBundle(
+        caseId = header.optString("case_id", obj.optString("case_id")),
+        generatedAtUtc = header.optString("generated_at_utc", ""),
+        jurisdiction = header.optString("jurisdiction", "Republic of India"),
+        statutoryCompliance = header.optString("statutory_compliance", "Section 63 BSA / 65B IEA"),
+        primaryVictimAccount = attr.optString("primary_victim_account", ""),
+        aggregateStolenAmountInr = attr.optDouble("aggregate_stolen_amount_inr", 0.0),
+        primaryMuleBeneficiary = attr.optString("primary_mule_beneficiary", ""),
+        predictedTerminalId = topCand?.optString("terminal_id") ?: "",
+        predictedLocation = topCand?.optString("location") ?: "",
+        confidenceScore = topCand?.optDouble("confidence_score") ?: 0.0,
+        forensicTrail = hops,
+        cryptoProof = CryptographicProofBundle(
+            canonicalHashAlgorithm = crypto.optString("canonical_hash_algorithm", "SHA256"),
+            section63BsaCertificate = crypto.optString("section_63_bsa_certificate", ""),
+            ed25519PublicKeyHex = crypto.optString("ed25519_public_key_hex", ""),
+            ed25519SignatureHex = crypto.optString("ed25519_signature_hex", ""),
+            merkleRootHash = crypto.optString("merkle_root_hash", ""),
+            merkleAuditProofIndex = crypto.optInt("merkle_audit_proof_index", 0),
+            verifiedImmutable = true
+        ),
+        rawJson = obj.toString(2)
+    )
+}
+

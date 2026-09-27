@@ -346,3 +346,43 @@ data class Quadruple<A, B, C, D>(
     val fourth: D
 )
 
+// ═══════════════════════════════════════════════════════════════════════
+//  SECTION 63 BSA / 65B EVIDENTIARY DOSSIER & CRYPTOGRAPHIC PROOF MODELS
+// ═══════════════════════════════════════════════════════════════════════
+
+data class ForensicHopItem(
+    val hopNumber: Int,
+    val fromAccount: String,
+    val toAccount: String,
+    val amountInr: Double,
+    val timestampUtc: String,
+    val paymentChannel: String,
+    val txHash: String
+)
+
+data class CryptographicProofBundle(
+    val canonicalHashAlgorithm: String = "SHA256",
+    val section63BsaCertificate: String = "",
+    val ed25519PublicKeyHex: String = "",
+    val ed25519SignatureHex: String = "",
+    val merkleRootHash: String = "",
+    val merkleAuditProofIndex: Int = 0,
+    val verifiedImmutable: Boolean = true
+)
+
+data class EvidentiaryDossierBundle(
+    val caseId: String,
+    val generatedAtUtc: String,
+    val jurisdiction: String = "Republic of India",
+    val statutoryCompliance: String = "Section 63 Bharatiya Sakshya Adhiniyam, 2023 / Section 65B Indian Evidence Act, 1872",
+    val primaryVictimAccount: String = "",
+    val aggregateStolenAmountInr: Double = 0.0,
+    val primaryMuleBeneficiary: String = "",
+    val predictedTerminalId: String = "",
+    val predictedLocation: String = "",
+    val confidenceScore: Double = 0.0,
+    val forensicTrail: List<ForensicHopItem> = emptyList(),
+    val cryptoProof: CryptographicProofBundle = CryptographicProofBundle(),
+    val rawJson: String = ""
+)
+
