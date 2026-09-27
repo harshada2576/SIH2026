@@ -34,6 +34,9 @@ from fastapi.responses import JSONResponse
 
 from api.discovery import DiscoveryService, get_primary_lan_ip
 from api.engine import CaseEngine
+from api.pubsub import GLOBAL_EVENT_BUS
+from api.security import verify_intervention_security
+from export.evidentiary_dossier import generate_evidentiary_dossier
 from detection import scorer
 from detection.auto_intervention import decide as decide_intervention
 from shared.schemas import AccountNodeMetadata, TransactionEvent
@@ -52,6 +55,7 @@ class WebSocketManager:
     def __init__(self) -> None:
         self.active_connections: Set[WebSocket] = set()
         self._lock = asyncio.Lock()
+        GLOBAL_EVENT_BUS.subscribe(self.handle_cluster_event)
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -73,28 +77,32 @@ class WebSocketManager:
             self.active_connections.discard(websocket)
         log.info(f"[WS] Mobile client disconnected. Remaining devices: {len(self.active_connections)}")
 
-    async def broadcast(self, event_type: str, data: Any) -> None:
-        payload = json.dumps({
+    async def handle_cluster_event(self, event: Dict[str, Any]) -> None:
+        """Internal dispatch from Redis/async PubSub event bus to local mobile sockets."""
+        payload = json.dumps(event, default=str)
+        dead = set()
+        async with self._lock:
+            conns = list(self.active_connections)
+        for ws in conns:
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                dead.add(ws)
+        if dead:
+            async with self._lock:
+                for ws in dead:
+                    self.active_connections.discard(ws)
+
+    async def broadcast(self, event_type: str, data: Any, publish_to_cluster: bool = True) -> None:
+        event = {
             "type": event_type,
             "data": data,
             "timestamp": datetime.now(timezone.utc).isoformat()
-        }, default=str)
-        
-        dead_connections = set()
-        async with self._lock:
-            connections = list(self.active_connections)
-
-        for ws in connections:
-            try:
-                await ws.send_text(payload)
-            except Exception as e:
-                log.warning(f"[WS] Send failed for a client: {e}")
-                dead_connections.add(ws)
-
-        if dead_connections:
-            async with self._lock:
-                for ws in dead_connections:
-                    self.active_connections.discard(ws)
+        }
+        if publish_to_cluster:
+            await GLOBAL_EVENT_BUS.publish(event)
+        else:
+            await self.handle_cluster_event(event)
 
 
 MAIN_LOOP: Optional[asyncio.AbstractEventLoop] = None
@@ -171,6 +179,8 @@ async def lifespan(app: FastAPI):
     log.info(f"Loaded {len(ENGINE.cases)} active investigation cases from detection engine")
     log.info(f"==================================================================")
 
+    await GLOBAL_EVENT_BUS.start()
+
     discovery_service = DiscoveryService(port=port, service_name="CyberShield-Backend")
     discovery_service.start()
 
@@ -184,6 +194,7 @@ async def lifespan(app: FastAPI):
     kafka_consumer_running = False
     if discovery_service:
         discovery_service.stop()
+    await GLOBAL_EVENT_BUS.stop()
 
 
 app = FastAPI(
@@ -312,6 +323,17 @@ async def act_on_case(ncrp_id: str, action: str, request: Request):
         body = await request.json()
     except Exception:
         body = {}
+
+    # Security: Verify request signature, timestamp window, nonce replay, and ABAC role
+    verify_intervention_security(
+        payload={"case_id": ncrp_id, "action": action, **body},
+        signature=request.headers.get("x-signature") or request.headers.get("X-Signature"),
+        timestamp=request.headers.get("x-timestamp") or request.headers.get("X-Timestamp"),
+        nonce=request.headers.get("x-nonce") or request.headers.get("X-Nonce"),
+        officer_id=request.headers.get("x-officer-id") or request.headers.get("X-Officer-ID"),
+        officer_role=request.headers.get("x-officer-role") or request.headers.get("X-Officer-Role"),
+        enforce_strict=False,
+    )
     
     if action == "notify":
         case = ENGINE.get(ncrp_id)
@@ -361,6 +383,16 @@ async def act_on_case(ncrp_id: str, action: str, request: Request):
     })
 
     return updated_case
+
+
+@app.get("/cases/{case_id}/dossier")
+async def get_case_evidentiary_dossier(case_id: str, officer_id: str = Query("OFFICER-I4C-CYBERSHIELD")):
+    """Export Section 63 BSA / 65B IEA Compliant Electronic Evidence Dossier."""
+    case = ENGINE.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Case {case_id} not found")
+    dossier = generate_evidentiary_dossier(case, nodal_officer_id=officer_id)
+    return dossier.to_dict()
 
 
 @app.get("/cases/{case_id}/notifications")
