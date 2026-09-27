@@ -214,6 +214,86 @@ class GraphSignal:
 # ============================================================================
 
 @dataclass
+class CorridorWaypoint:
+    """A prioritized waypoint in a multi-terminal cash-out escape corridor."""
+
+    terminal_id: str
+    order: int  # 1 = Primary, 2 = Secondary Fallback, 3 = Tertiary Fallback
+    terminal_type: str = "ATM_KIOSK"
+    latitude: float = 0.0
+    longitude: float = 0.0
+    distance_km_from_primary: float = 0.0
+    estimated_transit_minutes: float = 0.0
+    cash_status: str = "ONLINE_DISPENSING"
+    operating_hours: str = "24x7"
+    priority_score: float = 0.0
+    reasons: List[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CorridorWaypoint":
+        return cls(
+            terminal_id=str(data["terminal_id"]),
+            order=int(data.get("order", 1)),
+            terminal_type=str(data.get("terminal_type", "ATM_KIOSK")),
+            latitude=float(data.get("latitude", 0.0)),
+            longitude=float(data.get("longitude", 0.0)),
+            distance_km_from_primary=float(data.get("distance_km_from_primary", 0.0)),
+            estimated_transit_minutes=float(data.get("estimated_transit_minutes", 0.0)),
+            cash_status=str(data.get("cash_status", "ONLINE_DISPENSING")),
+            operating_hours=str(data.get("operating_hours", "24x7")),
+            priority_score=float(data.get("priority_score", 0.0)),
+            reasons=list(data.get("reasons", [])),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class TerminalCorridor:
+    """A multi-terminal withdrawal corridor linking primary ATM and sequential fallbacks."""
+
+    corridor_id: str
+    target_account_id: str
+    primary_terminal_id: str
+    waypoints: List[CorridorWaypoint] = field(default_factory=list)
+    corridor_confidence: float = 0.8  # 0.0 to 1.0
+    corridor_radius_km: float = 2.5
+    recommended_patrol_sector: str = "General Sector"
+    reasons: List[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TerminalCorridor":
+        raw_waypoints = data.get("waypoints", [])
+        wps = [
+            wp if isinstance(wp, CorridorWaypoint) else CorridorWaypoint.from_dict(wp)
+            for wp in raw_waypoints
+        ]
+        return cls(
+            corridor_id=str(data["corridor_id"]),
+            target_account_id=str(data["target_account_id"]),
+            primary_terminal_id=str(data["primary_terminal_id"]),
+            waypoints=wps,
+            corridor_confidence=float(data.get("corridor_confidence", 0.8)),
+            corridor_radius_km=float(data.get("corridor_radius_km", 2.5)),
+            recommended_patrol_sector=str(data.get("recommended_patrol_sector", "General Sector")),
+            reasons=list(data.get("reasons", [])),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "corridor_id": self.corridor_id,
+            "target_account_id": self.target_account_id,
+            "primary_terminal_id": self.primary_terminal_id,
+            "waypoints": [w.to_dict() if isinstance(w, CorridorWaypoint) else w for w in self.waypoints],
+            "corridor_confidence": self.corridor_confidence,
+            "corridor_radius_km": self.corridor_radius_km,
+            "recommended_patrol_sector": self.recommended_patrol_sector,
+            "reasons": list(self.reasons),
+        }
+
+
+@dataclass
 class PredictedTerminal:
     """One ranked cash-out candidate inside a RiskAlert (schema 6.4)."""
 
@@ -221,6 +301,11 @@ class PredictedTerminal:
     probability: float
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    terminal_type: str = "ATM_KIOSK"
+    cash_status: str = "ONLINE_DISPENSING"
+    operating_hours: str = "24x7"
+    priority_score: Optional[float] = None
+    distance_km: Optional[float] = None
 
     def __post_init__(self):
         self.terminal_id = str(self.terminal_id)
@@ -251,10 +336,23 @@ class PredictedTerminal:
             probability=float(data["probability"]),
             latitude=float(data["latitude"]) if data.get("latitude") is not None else None,
             longitude=float(data["longitude"]) if data.get("longitude") is not None else None,
+            terminal_type=str(data.get("terminal_type", "ATM_KIOSK")),
+            cash_status=str(data.get("cash_status", "ONLINE_DISPENSING")),
+            operating_hours=str(data.get("operating_hours", "24x7")),
+            priority_score=float(data["priority_score"]) if data.get("priority_score") is not None else None,
+            distance_km=float(data["distance_km"]) if data.get("distance_km") is not None else None,
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = {
+            "terminal_id": self.terminal_id,
+            "probability": self.probability,
+        }
+        if self.latitude is not None:
+            d["latitude"] = self.latitude
+        if self.longitude is not None:
+            d["longitude"] = self.longitude
+        return d
 
 
 @dataclass
@@ -272,6 +370,7 @@ class RiskAlert:
     # Optional/None so every existing producer/consumer of RiskAlert keeps
     # working unchanged — see detection/confidence.py.
     confidence: Optional[float] = None
+    corridor: Optional[Union[Dict[str, Any], TerminalCorridor]] = None
 
     def __post_init__(self):
         self.complaint_id = str(self.complaint_id)
@@ -314,6 +413,11 @@ class RiskAlert:
             if field_name not in data:
                 raise ValidationError(f"Missing required field in RiskAlert: '{field_name}'")
 
+        corridor_data = data.get("corridor")
+        corridor_obj = None
+        if corridor_data:
+            corridor_obj = corridor_data if isinstance(corridor_data, TerminalCorridor) else TerminalCorridor.from_dict(corridor_data)
+
         return cls(
             complaint_id=str(data["complaint_id"]),
             risk_score=data["risk_score"],
@@ -323,10 +427,11 @@ class RiskAlert:
             predicted_window_start=data["predicted_window_start"],
             predicted_window_end=data["predicted_window_end"],
             confidence=data.get("confidence"),
+            corridor=corridor_obj,
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "complaint_id": self.complaint_id,
             "risk_score": self.risk_score,
             "flagged_account_id": self.flagged_account_id,
@@ -336,6 +441,9 @@ class RiskAlert:
             "predicted_window_end": _format_iso(self.predicted_window_end),
             "confidence": self.confidence,
         }
+        if self.corridor is not None:
+            d["corridor"] = self.corridor.to_dict() if hasattr(self.corridor, "to_dict") else self.corridor
+        return d
 
 
 # ============================================================================
@@ -404,6 +512,10 @@ class TerminalNode:
     district: str = ""
     pincode: str = ""
     status: str = "active"
+    operating_hours: str = "24x7"
+    cash_status: str = "ONLINE_DISPENSING"
+    daily_cash_limit: float = 500000.0
+    current_cash_reserve: float = 250000.0
 
     def __post_init__(self):
         self.terminal_id = str(self.terminal_id)
@@ -424,6 +536,11 @@ class TerminalNode:
         elif not self.pincode and self.district_pincode:
             self.pincode = self.district_pincode
 
+        self.operating_hours = str(self.operating_hours or "24x7")
+        self.cash_status = str(self.cash_status or "ONLINE_DISPENSING")
+        self.daily_cash_limit = float(self.daily_cash_limit or 500000.0)
+        self.current_cash_reserve = float(self.current_cash_reserve or 250000.0)
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TerminalNode":
         return cls(
@@ -435,6 +552,10 @@ class TerminalNode:
             district=str(data.get("district", "")),
             pincode=str(data.get("pincode", data.get("district_pincode", ""))),
             status=str(data.get("status", "active")),
+            operating_hours=str(data.get("operating_hours", "24x7")),
+            cash_status=str(data.get("cash_status", "ONLINE_DISPENSING")),
+            daily_cash_limit=float(data.get("daily_cash_limit", 500000.0)),
+            current_cash_reserve=float(data.get("current_cash_reserve", 250000.0)),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -668,6 +789,7 @@ class CaseRecord:
     confirmation_id: Optional[str] = None
     resolution_reason: Optional[str] = None
     resolved_at: Optional[str] = None
+    corridor: Optional[Union[Dict[str, Any], TerminalCorridor]] = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -685,6 +807,7 @@ class CaseRecord:
             "existing_balance": self.existing_balance,
             "money_trail": [t.to_dict() if hasattr(t, "to_dict") else t for t in self.money_trail],
             "predicted_terminals": [t.to_dict() if hasattr(t, "to_dict") else t for t in self.predicted_terminals],
+            "corridor": self.corridor.to_dict() if hasattr(self.corridor, "to_dict") else self.corridor,
             "predicted_window_start": self.predicted_window_start,
             "predicted_window_end": self.predicted_window_end,
             "evidence": list(self.evidence),

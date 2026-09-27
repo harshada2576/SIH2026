@@ -159,6 +159,36 @@ def build_geo_velocity_scenario(graph: GraphStore, base: datetime) -> str:
     return account_id
 
 
+def build_smurfing_corridor_scenario(graph: GraphStore, base: datetime) -> str:
+    """Adversarial structured micro-smurfing (4 x ~₹24,500 transfers) + Multi-terminal corridor prediction."""
+    aggregator = "ACC-SMURF-CASH01"
+    victim = "ACC-VICTIM-CORP01"
+    graph.add_account_metadata(AccountNodeMetadata(account_id=victim, account_tier="victim", account_age_days=1200))
+    graph.add_account_metadata(AccountNodeMetadata(
+        account_id=aggregator, account_tier="mule_l1", account_age_days=6,
+        district_pincode="400051", historical_terminal_ids=["ATM-HDFC-Ce-001"]
+    ))
+
+    intermediates = [f"ACC-SMURF-MID{i:02d}" for i in range(1, 5)]
+    t = base - timedelta(minutes=25)
+    for i, mid in enumerate(intermediates):
+        graph.add_account_metadata(AccountNodeMetadata(account_id=mid, account_tier="mule_l1", account_age_days=5))
+        # Victim transfers structured amounts to intermediate mules
+        graph.add_transaction(TransactionEvent(
+            transaction_id=f"TXN-SMURF-IN-{i:02d}", source_account_id=victim, target_account_id=mid,
+            amount_inr=24500.0, timestamp=t + timedelta(minutes=i * 2),
+            payment_channel="UPI", device_fingerprint=f"DEV-SMURF-MID-{i}"
+        ))
+        # Intermediate mules immediately forward structured amounts to aggregator
+        graph.add_transaction(TransactionEvent(
+            transaction_id=f"TXN-SMURF-FWD-{i:02d}", source_account_id=mid, target_account_id=aggregator,
+            amount_inr=24400.0, timestamp=t + timedelta(minutes=i * 2 + 1),
+            payment_channel="IMPS", device_fingerprint="DEV-SMURF-MULE"
+        ))
+
+    return aggregator
+
+
 def main() -> None:
     base = datetime.now(timezone.utc)
     graph = GraphStore()
@@ -173,7 +203,10 @@ def main() -> None:
     print("Building a saturated CRITICAL-band case (to show the AUTO_FREEZE tier)...")
     critical_account = build_critical_saturation_case(graph, base)
 
-    candidates = [ring_accounts[0], geo_account, critical_account]
+    print("Building adversarial structured micro-smurfing & corridor route scenario...")
+    smurf_account = build_smurfing_corridor_scenario(graph, base)
+
+    candidates = [ring_accounts[0], geo_account, critical_account, smurf_account]
     print(f"\nScoring {len(candidates)} candidate account(s)...\n")
 
     any_alert = False

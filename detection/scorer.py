@@ -26,16 +26,18 @@ if str(REPO_ROOT) not in sys.path:
 from detection.confidence import compute_confidence
 from detection.rules import RULES
 from detection.rules.base import RuleResult
-from detection.terminal_ranking import TerminalScore, rank_terminals
+from detection.terminal_ranking import TerminalScore, predict_terminal_corridor, rank_terminals
 from pipeline.graph_store import GraphStore, utcnow, _as_utc
 from shared.schemas import (
     CaseLifecycleState,
     CaseRecord,
+    CorridorWaypoint,
     MoneyTrailLeg,
     PredictedTerminal,
     RiskAlert,
     SelectiveFundProtection,
     TerminalBlockRequest,
+    TerminalCorridor,
     TerminalNode,
     WithdrawalAttemptEvent,
 )
@@ -46,21 +48,19 @@ log = logging.getLogger("scorer")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Rule weights sum to 100.
-# Phase 2 (2026-09): added geo_velocity, identity_cluster, ml_anomaly and
-# rebalanced the original 8 weights downward proportionally to make room,
-# rather than letting the total exceed 100 (evaluate_account() clamps at 100
-# regardless, but an un-rebalanced table makes individual rule contributions
-# harder to reason about in the evidence panel).
+# Phase 2 (2026-09): added geo_velocity, identity_cluster, ml_anomaly, smurfing_subgraph
+# and rebalanced weights proportionally to sum to 100.
 WEIGHTS: Dict[str, int] = {
-    "velocity": 16,
-    "fan_in": 16,
-    "fan_out": 8,
-    "layering": 10,
-    "amount_movement": 10,
+    "velocity": 14,
+    "fan_in": 14,
+    "fan_out": 7,
+    "layering": 9,
+    "amount_movement": 9,
+    "smurfing_subgraph": 10,  # Adversarial micro-smurfing / multi-hop structured split
     "account_age": 4,
     "device_fingerprint": 4,
-    "terminal_affinity": 8,
-    "geo_velocity": 12,       # physically-impossible travel — strong, rare signal
+    "terminal_affinity": 7,
+    "geo_velocity": 10,       # physically-impossible travel — strong, rare signal
     "identity_cluster": 4,    # contributing signal, like device_fingerprint
     "ml_anomaly": 8,          # unsupervised outlier score, hybrid rule+ML layer
 }
@@ -230,6 +230,7 @@ def analyze(
     term_list = terminals if terminals is not None else load_terminals()
     ws, we = predicted_window(graph, account_id, as_of)
     ranked = rank_terminals(graph, account_id, term_list, ws)
+    corridor = predict_terminal_corridor(graph, account_id, ranked, ws)
 
     evidence = list(ev.evidence)
     trail = reconstruct_trail(graph, account_id)
@@ -241,6 +242,11 @@ def analyze(
             f"Top cash-out candidate {top.terminal.terminal_id} (priority "
             f"{top.priority:.0f}/100) because {', '.join(top.reasons)}"
         )
+    if corridor and len(corridor.waypoints) > 1:
+        evidence.append(
+            f"Corridor prediction: Primary {corridor.primary_terminal_id} with {len(corridor.waypoints)-1} "
+            f"sequential fallback hops within {corridor.corridor_radius_km:.1f} km ({corridor.recommended_patrol_sector})"
+        )
 
     predicted = [
         PredictedTerminal(
@@ -248,6 +254,10 @@ def analyze(
             probability=round(s.priority / 100.0, 3),
             latitude=s.terminal.latitude,
             longitude=s.terminal.longitude,
+            terminal_type=s.terminal.terminal_type,
+            cash_status=getattr(s.terminal, "cash_status", "ONLINE_DISPENSING"),
+            operating_hours=getattr(s.terminal, "operating_hours", "24x7"),
+            priority_score=s.priority,
         )
         for s in ranked
     ]
@@ -262,6 +272,7 @@ def analyze(
         predicted_window_start=ws,
         predicted_window_end=we,
         confidence=compute_confidence(ev),
+        corridor=corridor,
     )
 
 
@@ -300,6 +311,7 @@ def build_investigation_case(
         existing_balance=funds["existing_balance"],
         money_trail=trail_legs,
         predicted_terminals=alert.predicted_terminals if alert else [],
+        corridor=alert.corridor if alert else None,
         predicted_window_start=_as_utc(alert.predicted_window_start).isoformat() if alert else utcnow().isoformat(),
         predicted_window_end=_as_utc(alert.predicted_window_end).isoformat() if alert else (utcnow() + timedelta(minutes=45)).isoformat(),
         evidence=alert.evidence if alert else list(ev.evidence),
