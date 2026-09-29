@@ -939,14 +939,16 @@ class CaseEngine:
         except Exception:
             pass
 
-    def terminal_markers(self) -> List[dict]:
+    def terminal_markers(self, limit: Optional[int] = 500, include_all: bool = False) -> List[dict]:
         by_id = {c["targetTerminal"]["id"]: c["targetTerminal"] for c in self.cases.values()}
-        out = []
+        out = list(by_id.values())
+        seen = set(by_id.keys())
         for t in self.terminals:
-            if t["terminal_id"] in by_id:
-                out.append(by_id[t["terminal_id"]])
-            else:
+            if t["terminal_id"] not in seen:
                 out.append(_marker(t, 25, "No active prediction", "LOW"))
+                seen.add(t["terminal_id"])
+            if not include_all and limit and len(out) >= limit:
+                break
         return out
 
     def get_heatmap_points(

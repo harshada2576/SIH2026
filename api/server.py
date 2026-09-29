@@ -440,8 +440,11 @@ async def get_case_notifications(case_id: str):
 
 @app.get("/terminals")
 @app.head("/terminals")
-async def list_terminals():
-    return {"terminals": ENGINE.terminal_markers()}
+async def list_terminals(
+    limit: Optional[int] = Query(500, description="Max terminal markers to return (default: 500)"),
+    all: bool = Query(False, description="Return all 50,000+ terminals")
+):
+    return {"terminals": ENGINE.terminal_markers(limit=limit, include_all=all)}
 
 
 @app.get("/audit")
