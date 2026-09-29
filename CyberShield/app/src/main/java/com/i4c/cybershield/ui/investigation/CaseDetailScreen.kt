@@ -73,6 +73,25 @@ fun CaseDetailScreen(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 90.dp)
         ) {
+            // ─── Legal Disclaimer & Simulation Banners ───────────────
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = AccentAmber.copy(alpha = 0.12f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = "Disclaimer", tint = AccentAmber, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "High risk score ≠ proof of guilt. Human review required before any action.",
+                        fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AccentAmber
+                    )
+                }
+            }
+
             // ─── Plain-language headline ────────────────────────────
             SummaryHeadline(case)
             Spacer(modifier = Modifier.height(16.dp))
