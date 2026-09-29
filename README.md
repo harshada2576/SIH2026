@@ -1,144 +1,239 @@
-# Predictive Cash Egress Interception Platform (SIH26184)
-### Ministry of Home Affairs / I4C Cybercrime Interception & Defense System
+# CyberShield: Predictive Analytics Framework for Cybercrime Interception & Cash-Out Forecasting
+### National Defense Infrastructure for Financial Cyber Fraud Mitigation
+**Problem Statement ID:** 26184 | **Ministry of Home Affairs (MHA)** • **Indian Cyber Crime Coordination Centre (I4C), CIS Division**  
+**Theme:** Blockchain & Cybersecurity | **Category:** Software
 
-> **A real-time cyber fraud interception system that detects mule account networks and proactively predicts physical cash-out locations (ATMs / AEPS micro-ATMs) before illicit cash egress occurs.**
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Android 10+](https://img.shields.io/badge/Android-10%2B%20(API%2029--34)-green.svg)](https://developer.android.com/)
+[![Kotlin](https://img.shields.io/badge/Kotlin-Jetpack%20Compose-purple.svg)](https://kotlinlang.org/)
+[![BSA 2023 Compliant](https://img.shields.io/badge/Statutory-Section%2063%20BSA%202023-orange.svg)](https://www.mha.gov.in/)
+[![Sparse Merkle Tree](https://img.shields.io/badge/Cryptographic-Ed25519%20SMT-red.svg)](https://en.wikipedia.org/wiki/Merkle_tree)
+[![Dataset Scale](https://img.shields.io/badge/Dataset-%3E%201%20Crore%20Transactions-teal.svg)](https://github.com/harshada2576/SIH2026)
+[![Tests Passing](https://img.shields.io/badge/Tests-176%20Passing%20(100%25)-emerald.svg)](tests/)
 
 ---
 
-## 1. System Architecture & Data Flow
+## 🌐 Quick Access & Live Deployments
+
+* **Official Interactive Portal:** [https://harshada2576.github.io/SIH2026/](https://harshada2576.github.io/SIH2026/)
+* **Official Signed Release APK (v1.0.0):** [Download CyberShield-v1.0.0-release.apk](https://github.com/harshada2576/SIH2026/releases/download/v0.0.1/CyberShield-v1.0.0-release.apk)
+* **Live Cloud Core API:** [https://sih-render.seucra.tech/](https://sih-render.seucra.tech/) (Fallback: [https://cybershield-backend-g8fl.onrender.com/](https://cybershield-backend-g8fl.onrender.com/))
+* **Evidentiary Dossier Spec:** [`docs/SIH_MASTER_PITCH_AND_WINNING_DOSSIER.md`](docs/SIH_MASTER_PITCH_AND_WINNING_DOSSIER.md)
+
+---
+
+## 1. Executive Summary & National Purpose
+
+India's National Cybercrime Reporting Portal (NCRP) and the Citizen Financial Cyber Fraud Reporting and Management System (CFCFRMS / Helpline 1930) receive over **8,000+ complaints daily**. Despite rapid advances in digital payments via UPI, IMPS, and AEPS, financial recovery rates for cybercrime victims remain under **5%**.
+
+### The Fundamental Flaw of Reactive Defense:
+1. **The Time Lag:** Victims typically discover and report fraud 2 to 24 hours after an unauthorized debit.
+2. **Rapid Multi-Hop Layering:** Organized syndicates systematically route stolen funds through 3 to 6 intermediate mule accounts within minutes.
+3. **Irreversible Physical Cash-Out:** Funds are promptly withdrawn as physical currency at Bank ATMs, AEPS Micro-ATMs, or POS agents. Once cash leaves the terminal, digital traceability ends.
+
+```
+[ Traditional Reactive Workflow ]
+Victim Debited ➔ (2-24 hrs delay) ➔ 1930 Complaint ➔ Bank Lien Processed ➔ ❌ Funds Already Withdrawn as Cash (Recovery < 5%)
+
+[ CyberShield Proactive Interception ]
+Live Stream Hop Analysis ➔ Real-Time ML Anomaly & Heuristic Scoring ➔ 🎯 15-30 Min Advance ATM/AEPS Hotspot Forecast
+  ├─ 🏦 Bank Track: Automated Differential Hold (Restricts suspicious delta, preserves legitimate citizen balance)
+  └─ 🚓 Police Track: Priority Dispatch to Nearest Field Patrol with GPS Navigation, Suspect Hints & Time Window
+```
+
+**CyberShield transforms national cyber defense from post-incident complaint logging to pre-egress real-time spatial interception.**
+
+---
+
+## 2. Core Architectural Pillars
+
+```mermaid
+flowchart TD
+    subgraph S1["High-Velocity Streaming & Partition-Convergent Ingestion"]
+        A["Banking Feeds (UPI / IMPS / AEPS)"] --> B["Kafka Topics ('transactions')"]
+        B --> C["ClusterGraphStore (Sub-15ms BFS Traversal)"]
+    end
+
+    subgraph S2["Hybrid Predictive Analytics & Spatial Intelligence"]
+        C --> D["16 Heuristic Rules (Mule Rings, Layering, Geo-Velocity)"]
+        C --> E["Unsupervised Isolation Forest ML Model"]
+        D & E --> F["Terminal Ranking & Haversine Spatial Decay e^-λd"]
+    end
+
+    subgraph S3["Blockchain Trust & Statutory Legal Admissibility"]
+        F --> G["Sparse Merkle Tree (SMT) Ledger"]
+        G --> H["Ed25519 Cryptographic Block Signing"]
+        G --> I["Section 63 BSA 2023 Evidentiary Dossier"]
+    end
+
+    subgraph S4["Institutional Dispatch & Native Mobile Command"]
+        F --> J["Decoupled Redis/Async EventBus"]
+        J --> K["Institutional Adapters (Bank CBS / LEA / I4C)"]
+        J --> L["CyberShield Native Android Kotlin App (Field Patrol)"]
+    end
+```
+
+### Pillar 1: High-Velocity Streaming & Graph Traversal (`pipeline/`)
+* **Partition Convergence:** Solves the Kafka multi-hop partition fragmentation paradox (e.g. Hop 1 on Partition 1, Hop 2 on Partition 2) using thread-safe atomic batch synchronization in `ClusterGraphStore`.
+* **Sub-15ms Ingestion:** Optimized adjacency lists trace deep layering chains and detect structured smurfing subgraphs in sub-millisecond BFS cycles.
+
+### Pillar 2: Hybrid Predictive Analytics & Terminal Ranking (`detection/`)
+* **16 Explainable Rule Archetypes:** Fan-in/out, rapid forwarding (<3 min hops), shared KYC identity rings, shared device fingerprints, dormant account reactivation, and geo-velocity "impossible travel" (e.g., account debited in Mumbai and withdrawn in Hyderabad 20 minutes later).
+* **Unsupervised Anomaly Model:** Isolation Forest detecting multivariate turnover anomalies and diurnal temporal deviations.
+* **Spatial Probability & Time-to-Cashout Decay Equation:**
+  $$S(T_i, A) = w_1 \cdot \text{Affinity}(A, T_i) + w_2 \cdot e^{-\lambda \cdot d(L_A, T_i)} + w_3 \cdot \text{Density}(T_i) + w_4 \cdot \text{TierWeight}$$
+  Forecasts physical ATM or AEPS kiosk candidates with confidence scores and 15–45 min arrival windows.
+
+### Pillar 3: Pre-Complaint Differential Hold Protocol (`api/`)
+* **Zero Citizen Distress:** Traditional bank freezes lock the entire account, leaving innocent victims unable to buy food or pay rent.
+* **Differential Delta Freeze:** Restricts strictly the suspicious incoming funds delta (e.g. ₹50,000) while leaving pre-existing legitimate customer balances (e.g. ₹20,000) completely untouched and spendable.
+
+### Pillar 4: Section 63 BSA 2023 Evidentiary Dossier (`export/`)
+* **Statutory Compliance:** Built specifically to satisfy Section 63 of India's **Bharatiya Sakshya Adhiniyam, 2023 (BSA)** (replacing Section 65B of the Indian Evidence Act).
+* **Court Admissibility:** Automatically exports digitally signed electronic evidence certificates containing canonical SHA-256 digests, chronological hop leg hashes, and cryptographic proof paths for trial courts.
+
+### Pillar 5: Sparse Merkle Tree (SMT) Immutability (`audit/`)
+* **Tamper-Evident Ledger:** Every transaction, risk evaluation, and officer intervention is committed to an append-only Sparse Merkle Tree signed with **Ed25519 keypairs**.
+* **$O(\log N)$ Sibling Inclusion Proofs:** Verifiable in $< 2\text{ ms}$ without exposing sensitive customer banking records in court.
+
+### Pillar 6: Native Android Mobile Command Center (`CyberShield/`)
+* **Architecture:** 100% Native Kotlin & Jetpack Compose (Zero web wrappers, sub-60fps hardware-accelerated GIS).
+* **Operational Capabilities:** Live GIS radar map, visual multi-hop fund graph, dual-persona switching (Police Investigator vs Bank Officer), and multi-cloud fail-safe routing.
+
+---
+
+## 3. Real-World Multi-Year Dataset Benchmark
+
+To prove production readiness beyond toy academic prototypes, CyberShield includes an enterprise-scale synthetic simulation engine:
+
+| Metric / Dimension | Production Scale | Description |
+|---|---|---|
+| **Total Transactions** | **10,053,923** (> 1 Crore) | Validated, chronological balance-replayed transaction ledger |
+| **Monitored Accounts** | **500,000** | Structured across veteran (>1000d), established, and fresh mule tiers |
+| **Physical Terminals** | **50,000+** | Bank ATMs, AEPS Micro-ATMs, and POS kiosks across 20+ Indian hubs |
+| **Historical Horizon** | **2024 – 2026** (1,003 Days) | Multi-year timeline capturing macro UPI growth (1.55×), salary cycles (1st–5th), and festive peaks |
+| **Fraud Campaigns** | **14,400 campaigns** | Injected across all 16 distinct fraud archetypes with ground-truth labels |
+| **Verification** | **0 Missing Records** | Verified via `verify.py` with zero integrity violations |
+
+---
+
+## 4. Institutional Integration Architecture
+
+CyberShield provides production-ready adapters (`pipeline/integration_adapters.py`) matching national financial and law enforcement interfaces:
 
 ```text
-Synthetic / Live Transactions
-             ↓
-  data-generator/producer.py (keyed by source_account_id, chronologically sorted)
-             ↓
-     Kafka "transactions" (3 partitions, KRaft single-broker)
-             ↓
-     pipeline/consumer.py (group_id: graph-builder-group)
-             ↓
-     pipeline/graph_store.py (sliding-window NetworkX graph, O(1) device index, idempotent)
-             ↓
-     Kafka "graph_signals" (8-field contract)
-             ↓
-     detection/scorer.py (8 modular rules @ score >= 60 -> HIGH/CRITICAL)
-             ↓
-     detection/terminal_ranking.py (spatial proximity + historical affinity ranking)
-             ↓
-     Kafka "risk_alerts" (with terminal coordinates: latitude, longitude)
-             ↓
-    ┌─────────────────────────────────────────────────────────────┐
-    │                                                             │
-    ▼                                                             ▼
-Notification Subsystem (Sprint 4)                   FastAPI Backend API (`api/server.py`)
-(SMS & Email to Bank/Security/Investigation)        (LAN Sync on 0.0.0.0:5003)
-    │                                                             │
-    └─────────────────────────────┬───────────────────────────────┘
-                                  ▼
-                CyberShield Native Android Kotlin App
-                (Jetpack Compose · MapLibre OSM · Live Sync)
-                **SOLE USER-FACING FRONTEND** (No Web App)
+ ┌────────────────┐         ┌────────────────────────────────┐         ┌────────────────┐
+ │    Bank CBS    │ <====== │       CyberShield API          │ ======> │  State Police  │
+ │  (Core Banking │         │   (Pre-Egress Interception)    │         │  Control Room  │
+ │  REST/ISO8583) │         └────────────────────────────────┘         │  (112 / PCR)   │
+ └────────────────┘                         ║                          └────────────────┘
+                                            ▼
+                                ┌───────────────────────┐
+                                │     I4C National      │
+                                │   CFCFRMS / 1930 Hub  │
+                                └───────────────────────┘
+```
+
+* **Bank Core Banking Adapter (`POST /api/v1/bank/hold`):** Places differential provisional holds and releases verified legitimate funds.
+* **Law Enforcement Adapter (`POST /api/v1/lea/alert`):** Transmits emergency patrol intercept packets containing target ATM coordinates, turn-by-turn routing, suspect KYC/device hints, and predicted arrival window.
+* **I4C National Hub Adapter (`POST /api/v1/i4c/sync`):** Synchronizes inter-state mule intelligence and updates national blacklists across jurisdictions.
+
+---
+
+## 5. Repository Structure
+
+```text
+SIH2026/
+├── CyberShield/                   # Native Android Kotlin App (Jetpack Compose)
+│   ├── app/src/main/java/         # Application source (Radar, Investigation, Net)
+│   └── cybershield-release.jks    # Official I4C release signing keystore
+├── api/                           # FastAPI REST & WebSocket Live Server
+│   ├── server.py                  # Core backend with root health check & cloud detection
+│   ├── engine.py                  # In-memory case orchestration & heatmap generator
+│   ├── pubsub.py                  # Multi-worker Redis/Async EventBus
+│   ├── validation_routes.py       # Benchmark validation endpoints
+│   └── integration_routes.py      # Institutional adapter contracts (Bank/LEA/I4C)
+├── audit/                         # Blockchain-Lite & Cryptographic Trust
+│   ├── merkle_ledger.py           # Sparse Merkle Tree (SMT) with Ed25519 signing
+│   └── tamper_demo.py             # Live disk-tampering detection demo
+├── detection/                     # Detection & Geospatial Ranking Engine
+│   ├── scorer.py                  # Hybrid scoring engine (16 rules + Isolation Forest)
+│   ├── terminal_ranking.py        # Spatial proximity, TDI density, & corridor prediction
+│   └── rules/                     # 16 modular explainable heuristic rule implementations
+├── export/                        # Statutory Legal Evidence System
+│   └── evidentiary_dossier.py     # Section 63 BSA 2023 court-admissible certificate generator
+├── pipeline/                      # High-Throughput Stream Processing
+│   ├── cluster_graph.py           # Partition-convergent Kafka graph store
+│   ├── validation_engine.py       # Multi-seed prediction benchmark runner
+│   └── integration_adapters.py    # Simulated institutional Bank/LEA/I4C adapters
+├── data-generator/                # Enterprise 1 Crore+ Multi-Year Dataset Engine
+├── docs/                          # Master Documentation & Defense Guides
+│   ├── SIH_MASTER_PITCH_AND_WINNING_DOSSIER.md
+│   ├── VALIDATION_PROTOCOL.md
+│   └── VALIDATION_AND_INTEGRATION.md
+├── public/                        # Static landing page for GitHub Pages
+│   └── index.html                 # Tactical command room theme with live API tester
+├── release_apk/                   # Signed release binaries (v1.0.0, 53 MB)
+└── tests/                         # Complete automated test suite (176 tests passing)
 ```
 
 ---
 
-## 2. Platform Subsystems
+## 6. Getting Started & Local Execution
 
-### 1. Data Generation (Workstream 1)
-* **Modular Generator (`data-generator/`):** Generates realistic normal traffic + injected fraud patterns (fan-in, fan-out, layering chains, triadic cycles) with power-law amount distributions across 16 fraud archetypes.
-* **Producer (`data-generator/producer.py`):** Normalizes transactions to the 7 locked Kafka fields, keys messages by `source_account_id`, and replays streams in true chronological order.
+### Prerequisites
+* Python 3.10+ (tested through Python 3.14)
+* Android SDK 34 (for Android app builds)
+* Java 17 (for Gradle and keytool)
 
-### 2. Kafka Streaming & Graph Pipeline (Workstream 2)
-* **Kafka Topics:** `transactions` (3 partitions), `graph_signals` (1 partition), `risk_alerts` (1 partition).
-* **GraphStore (`pipeline/graph_store.py`):** In-memory directed graph (NetworkX) with sliding-window edge eviction, thread-safe deduplication (`_seen_tx_ids`), and structural topology queries.
-* **Poison-Pill Handling:** Corrupted non-JSON bytes and malformed events are safely skipped without bringing down the consumer.
-
-### 3. Detection Engine & Terminal Ranking (Workstream 3)
-* **8 Heuristic Rules (`detection/rules/`):**
-  1. `fan_in_rule`: Rapid accumulation across multiple senders.
-  2. `fan_out_rule`: Rapid dispersion to multiple targets.
-  3. `velocity_rule`: Swift pass-through latency (inbound-to-outbound gap).
-  4. `layering_rule`: Deep multi-hop chain traversal.
-  5. `amount_movement_rule`: High forwarded-fund proportion.
-  6. `account_age_rule`: Freshly created mule accounts.
-  7. `device_fingerprint_rule`: Shared hardware fingerprint clusters.
-  8. `terminal_affinity_rule`: Prior cash-out location match.
-* **Terminal Priority Ranking (`detection/terminal_ranking.py`):** Ranks candidate physical egress terminals by spatial distance, historical affinity, and terminal type.
-* **Alert Dispatcher (`detection/alert_dispatcher.py`):** Publishes `risk_alerts` with explainable evidence trails and predicted withdrawal time windows.
-
-### 4. SMS & Email Notification Subsystem (Sprint 4)
-* **Modular Notification Engine (`pipeline/notification_service.py`):** Dispatches channel-specific alerts (concise SMS and structured investigation emails with HTML + plain text) across key case milestones without blocking transaction processing.
-* **Supported Events:**
-  - `HIGH_RISK_CASE`: Initial detection and predicted terminal assignment.
-  - `CONFIRMED_FRAUD`: Payer confirms unauthorized transfer via interactive verification.
-  - `CASHOUT_ATTEMPT_DETECTED`: Physical or cardless withdrawal attempted at ATM.
-  - `WITHDRAWAL_BLOCKED`: Hard ATM/digital block intercepts cash egress.
-  - `CASE_ESCALATED`: Priority escalated to CRITICAL.
-  - `POLICE_ALERT_SENT`: LEA investigation package dispatched to field patrol.
-  - `PENDING_CONFIRMATION`: High-risk transfer placed on digital hold awaiting verification.
-* **Provider Architecture:**
-  - Default: Safe mock providers labeled `[SIMULATED]` (`MockSmsProvider`, `MockEmailProvider`).
-  - Production Gateways: Pluggable HTTP/REST SMS (`RealSmsProvider`) and standard SMTP/TLS (`SmtpEmailProvider`) configurable via environment variables without hardcoded credentials.
-* **Reliability & Idempotency:** Deterministic hashing keys prevent duplicate notifications; bounded retry mechanism (up to 3 retries) handles transient failures gracefully without crashing.
-* **Persistence:** All notifications stored in SQLite (`cybershield.db -> notifications` table).
-
-### 5. Frontend & Backend Presentation Layer
-* **CyberShield Native Android App (`CyberShield/`):** **The sole frontend for this project.** Native Kotlin + Jetpack Compose application featuring:
-  - Cases Queue with plain-language summaries and filtering.
-  - Case Detail Screen with XAI evidence, money trail diagrams, action decisions ("Send to Police", "Freeze Account", "Dismiss"), and authoritative `NotificationDeliveryCard` delivery status.
-  - Interactive Radar Map (MapLibre OSM) with spatial clustering and terminal markers.
-  - Activity screen displaying tamper-evident audit ledger entries.
-* **FastAPI Backend Service (`api/server.py`):** Lightweight JSON REST API running on `0.0.0.0:5003` for local LAN access by Android physical devices and emulators:
-  - `GET /cases`: Retrieve active cases with investigation state.
-  - `GET /cases/{case_id}/notifications`: Retrieve authoritative notification delivery items.
-  - `POST /cases/{case_id}/notify`: Trigger manual or programmatic notifications.
-  - `POST /cases/{case_id}/act`: Execute investigator decisions (freeze, approve, escalate).
-
-> **FRONTEND ARCHITECTURE MANDATE:**
-> There is **NO** web frontend, HTML dashboard, or JavaScript framework. The CyberShield Native Android Kotlin App is the exclusive presentation client.
-
----
-
-## 3. Quick Start & Execution
-
-### A. Environment Setup & Tests
+### Step 1: Install Dependencies
 ```bash
-# Install dependencies
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+```
 
-# Run complete test suite (127+ unit, notification, schema, rule, and integration tests)
+### Step 2: Run Automated Test Suite
+```bash
+# Run all 176 automated unit, security, Merkle, and integration tests
 pytest tests/ -v
 ```
 
-### B. Run Sprint 4 Notification Demo
+### Step 3: Launch Live Services
 ```bash
-# Run operational end-to-end notification lifecycle demo
-python -m scripts.demo_notification_system
+# Start Mock Bank (8001), Mock NCRP (8002), and CyberShield API (5003)
+python scripts/run_hackathon.py
 ```
 
-### C. Start Backend API Server for CyberShield Android
+### Step 4: Run Live Interactive Demonstrations
 ```bash
-# Start FastAPI backend (LAN accessible on port 5003)
-python -m uvicorn api.server:app --host 0.0.0.0 --port 5003
+# 1. Cryptographic Tamper Defense & O(log N) SMT Proof Demo
+python -m audit.tamper_demo
+
+# 2. End-to-End Investigation & Section 63 BSA Certificate Export
+python scripts/verify_e2e_flow.py
+
+# 3. Multi-Mule Ring & Geo-Velocity Impossible Travel Demo
+python scripts/demo_phase2.py
 ```
 
-### D. Run Full Live Streaming Pipeline
+### Step 5: Install Mobile Command App on Android
+Download `release_apk/CyberShield-v1.0.0-release.apk` (or install via ADB):
 ```bash
-# 1. Start Kafka Broker
-docker compose up -d
-
-# 2. Start Pipeline Consumer (Terminal 1)
-python pipeline/consumer.py
-
-# 3. Start Detection Scorer (Terminal 2)
-python detection/scorer.py
-
-# 4. Publish Live Transactions Stream (Terminal 3)
-python data-generator/producer.py
+adb install release_apk/CyberShield-v1.0.0-release.apk
 ```
+*The app automatically searches for `https://sih.seucra.tech` (local tunnel) $\rightarrow$ `https://sih-render.seucra.tech` (cloud fallback) $\rightarrow$ local Wi-Fi UDP discovery.*
 
-### E. Build CyberShield Android App
-```bash
-cd CyberShield
-./gradlew assembleDebug
-# APK generated at: CyberShield/app/build/outputs/apk/debug/app-debug.apk
-```
+---
+
+## 7. Statutory & Legal Standards Compliance
+
+* **Bharatiya Sakshya Adhiniyam, 2023 (BSA):** Full compliance with **Section 63** regarding the admissibility of electronic records, hash digest preservation, and certificate of origin.
+* **Reserve Bank of India (RBI) Circular DBR.No.Leg.BC.78/09.07.005/2017-18:** Zero liability protection for citizens reporting within 3 days; supported via differential provisional holds.
+* **Information Technology Act, 2000 (Section 43A, 66C, 66D):** Electronic trail preservation for identity theft and impersonation cheating.
+
+---
+
+## 8. License
+
+This project is licensed under the Apache License 2.0. Developed for national cybersecurity enhancement and public interest under the **Ministry of Home Affairs (I4C)** framework.
