@@ -232,8 +232,20 @@ adb install release_apk/CyberShield-v1.0.0-release.apk
 * **Reserve Bank of India (RBI) Circular DBR.No.Leg.BC.78/09.07.005/2017-18:** Zero liability protection for citizens reporting within 3 days; supported via differential provisional holds.
 * **Information Technology Act, 2000 (Section 43A, 66C, 66D):** Electronic trail preservation for identity theft and impersonation cheating.
 
+## 8. Engineering Team & Core Contributors
+
+| Contributor | Focus Area & Engineering Role |
+| :--- | :--- |
+| **[@seucra](https://github.com/seucra)** | **Systems Architecture & Security Lead** — Merkle Audit Ledger, Multi-Cloud Ingestion, Cryptographic Chain of Custody & BSA Dossiers |
+| **[@harshada2576](https://github.com/harshada2576)** | **Project Lead & Full-Stack Orchestration** — Heuristic Rule Scorer, Anomaly Detection Pipeline & Engine Coordination |
+| **[@The-CoDexR3kt](https://github.com/The-CoDexR3kt)** | **Institutional Integration & Validation** — Institutional Adapters (Bank CBS / LEA / I4C), Pre-Registered Validation Engine & Contract Tests |
+| **[@NikamShreya696](https://github.com/NikamShreya696)** | **Data Architecture & Simulation** — 1 Crore+ Multi-Year Synthetic Simulation Engine, Diurnal Curves & Kafka Producer |
+| **[@abaanmhaisker](https://github.com/abaanmhaisker)** | **Mobile Frontend & UX Lead** — CyberShield Native Android Jetpack Compose App, MapLibre GIS Radar & Investigation Canvas |
+| **Dakshata Mhatre** | **Evidence Verification & Threat Modeling** — Evidentiary Dossier Validation, Fraud Scenario Testing & Quality Assurance |
+
 ---
 
-## 8. License
+## 9. License
 
-This project is licensed under the Apache License 2.0. Developed for national cybersecurity enhancement and public interest under the **Ministry of Home Affairs (I4C)** framework.
+Licensed under the **Apache License, Version 2.0**. See the [LICENSE](LICENSE) file for complete terms and patent grant provisions. Developed for national cybersecurity enhancement and public interest under the **Ministry of Home Affairs (I4C)** framework.
+
