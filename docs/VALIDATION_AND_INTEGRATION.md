@@ -2,8 +2,8 @@
 
 **Project:** CyberShield (SIH 2026, PS 26184, MHA/I4C)  
 **Status:** IMPLEMENTED & VERIFIED  
-**Protocol Reference:** [`docs/VALIDATION_PROTOCOL.md`](file:///c:/Users/RAYED%20KHAN/Documents/Cash_Withdraw/SIH2026/docs/VALIDATION_PROTOCOL.md)  
-**Raw Benchmark Data:** [`data/output/validation_report.json`](file:///c:/Users/RAYED%20KHAN/Documents/Cash_Withdraw/SIH2026/data/output/validation_report.json)  
+**Protocol Reference:** [`docs/VALIDATION_PROTOCOL.md`](VALIDATION_PROTOCOL.md)  
+**Raw Benchmark Data:** [`data/output/validation_report.json`](../data/output/validation_report.json)  
 
 ---
 
@@ -68,7 +68,7 @@ Scenarios are evaluated across three difficulty tiers:
 ## 5. Institutional Integration Layer Architecture
 
 ### 5.1 Connector Adapters & Data Minimization
-The integration boundary [`pipeline/integration_adapters.py`](file:///c:/Users/RAYED%20KHAN/Documents/Cash_Withdraw/SIH2026/pipeline/integration_adapters.py) implements three role-specific connectors:
+The integration boundary [`pipeline/integration_adapters.py`](../pipeline/integration_adapters.py) implements three role-specific connectors:
 - **SimulatedBankAdapter**: Delivers fund hold requests (`hold_amount_inr`, `account_id`) applying strict financial data minimization.
 - **SimulatedLEAAdapter**: Delivers patrol dispatch alerts (`target_terminal_id`, `latitude`, `longitude`, `cashout_window`).
 - **SimulatedI4CAdapter**: Delivers national threat indexing payloads (`ncrp_complaint_id`, `evidence_hash`).

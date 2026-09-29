@@ -89,6 +89,14 @@ flowchart TD
 * **FastAPI Server (`api/server.py`):**
   * Serves REST endpoints for cases, terminals, heatmaps, and Section 63 BSA dossiers (`GET /cases/{id}/dossier`) alongside dynamic LAN UDP discovery.
 
+#### Pillar 4: Prediction Validation & Institutional Adapters
+* **Pre-Registered Prediction Validation (`docs/VALIDATION_PROTOCOL.md` & `engine/validation_engine.py`):**
+  * Evaluated across 70/30 time-ordered split under strict temporal cutoff (`as_of`) guards to eliminate data leakage.
+  * Achieves **51.39% ± 2.50% Top-3 Hit Rate** (within 2.0 km radius) with 95% Bootstrap CI `[47.22%, 54.17%]`, representing a **+145.2% relative lift** over random baseline.
+* **Institutional Integration Layer (`pipeline/integration_adapters.py`):**
+  * Role-specific connectors for **Bank CBS** (differential provisional hold), **Police LEA** (patrol dispatch packet), and **I4C NCRP** (threat indexing).
+  * Strict human-in-the-loop review guard with mandatory justification logging into the cryptographic audit ledger.
+
 ---
 
 ### 5. Essential Commands & Demo Catalog
@@ -97,16 +105,26 @@ flowchart TD
 | :--- | :--- | :--- |
 | **Start Full Server Hub** | `.venv/bin/python3 scripts/run_hackathon.py` | Starts Mock Bank (8001), Mock NCRP (8002), and CyberShield API (5003). |
 | **Run Tamper Demo** | `.venv/bin/python3 -m audit.tamper_demo` | Proves blockchain immutability, disk tampering detection, and O(log N) SMT proof verification. |
-| **Run E2E Replay Flow** | `.venv/bin/python3 scripts/verify_e2e_flow.py` | Validates streaming ingestion, 8 rules + ML, SQLite persistence, and Section 63 BSA dossier export. |
+| **Run E2E Replay Flow** | `.venv/bin/python3 scripts/verify_e2e_flow.py` | Validates streaming ingestion, 16 rules + ML, SQLite persistence, and Section 63 BSA dossier export. |
 | **Run Mule Ring & Geo-Velocity** | `.venv/bin/python3 scripts/demo_phase2.py` | Demonstrates a 12-mule shared KYC identity cluster + Mumbai-to-Hyderabad "impossible travel" alert. |
 | **Run Full Case Orchestration** | `.venv/bin/python3 scripts/demo_full_case_orchestration.py` | Runs the full 11-step lifecycle: Detection -> Hold -> Police Dispatch -> Resolution. |
 | **Run Police Alert Workflow** | `.venv/bin/python3 scripts/demo_police_alert_workflow.py` | Shows Bank-to-Police alert dispatch, data minimization, and live state synchronization. |
-| **Run Notification System** | `.venv/bin/python3 scripts/demo_notification_system.py` | Demonstrates real-time multi-channel notifications (SMS + HTML Email) with de-duplication. |
-| **Run Full Test Suite** | `.venv/bin/pytest tests/ -v` | Runs all **166 automated unit & integration tests** across the entire stack. |
+| **Run Prediction Benchmark** | `.venv/bin/python3 -m engine.validation_engine` | Executes pre-registered multi-seed validation benchmark across difficulty tiers. |
+| **Run Full Test Suite** | `.venv/bin/pytest tests/ -v` | Runs all **177 automated unit & integration tests** across the entire stack (100% pass). |
 
 ---
 
-### 6. 4-Slide Pitch Outline
+### 6. Live Deployments & Distribution
+
+| Layer | Environment | URL / Endpoint | Verification |
+| :--- | :--- | :--- | :--- |
+| **Evaluator Portal** | GitHub Pages (Actions) | [https://harshada2576.github.io/SIH2026/](https://harshada2576.github.io/SIH2026/) | Interactive API explorer & live status |
+| **Cloud Production API** | Render / Custom CNAME | [https://cybershield-backend-g8fl.onrender.com](https://cybershield-backend-g8fl.onrender.com) / [https://sih-render.seucra.tech](https://sih-render.seucra.tech) | Root & Health 200 OK telemetry |
+| **Signed Release APK** | GitHub Releases (`v0.0.1`) | [https://github.com/harshada2576/SIH2026/releases/tag/v0.0.1](https://github.com/harshada2576/SIH2026/releases/tag/v0.0.1) | APK Signature Scheme v2 (I4C Keystore) |
+
+---
+
+### 7. 4-Slide Pitch Outline
 
 1. **Slide 1: Problem Context & The Proactive Paradigm Shift**
    * The 8,000+ daily complaints bottleneck; why reactive post-cashout liens fail; pre-egress dual-track intervention.
@@ -114,44 +132,37 @@ flowchart TD
    * Analytics Engine (Rules + ML) + GIS Radar + Android Native App + Multi-Channel Notification Hub.
 3. **Slide 3: Cybersecurity, Blockchain & Section 63 BSA Legal Admissibility**
    * Sparse Merkle Tree (SMT) O(log N) inclusion proofs, Ed25519 block signing, and statutory electronic evidence certificates.
-4. **Slide 4: Technical Scalability, Feasibility & Real-World Impact**
-   * Kafka cluster graph synchronization, 10,000+ TPS capacity, Redis Pub/Sub, and 166 verified automated tests.
-
----
-
-### 7. Video Demonstration Storyboard & Pitch Guide
-
-#### 🎬 Recommended Video Duration: 3 to 5 Minutes
-
-#### **Scene 1: The Problem Hook (0:00 – 0:45)**
-* **Visual:** Visual representation of money hopping rapidly across mule accounts and cash withdrawn before a victim even dials NCRP 1930.
-* **Narration:** Explain the fundamental challenge: *"Today, India's cybercrime defense is reactive. Mules withdraw cash at ATMs within 30 minutes, long before a victim dials 1930. CyberShield solves this by predicting the cashout point and intervening before the cash leaves the machine."*
-
-#### **Scene 2: Backend Pipeline & Heuristics in Action (0:45 – 1:45)**
-* **Visual:** Terminal screen showing `.venv/bin/python3 scripts/demo_phase2.py` or `.venv/bin/python3 scripts/run_hackathon.py` ingesting high-velocity transactions, detecting a 12-mule ring and impossible travel geo-velocity.
-* **Narration:** Highlight the hybrid detection engine: *"CyberShield uses 8 explainable heuristics—including structured smurfing, shared KYC rings, and geo-velocity—paired with Isolation Forest ML anomaly scoring and sub-millisecond graph traversal."*
-
-#### **Scene 3: The Android Native App & Real-Time Alert (1:45 – 3:00)**
-* **Visual:** Screen recording of the CyberShield Android Kotlin App (or running on a physical phone/emulator).
-  * **Radar Map Tab:** Show the cash-out radar map with predicted ATMs, confidence circles, and risk levels.
-  * **Cases Queue Tab:** Open a critical case (`NCRP-CASE-...`).
-  * **Dual-Action Protocol:** Show the **Bank Official** placing a *Selective Hold* (preserving untouched funds) and clicking **"Send to Police"**.
-  * **Police View:** Switch role to **Police Investigator**, show the incident packet, target ATM coordinates, and navigation route.
-
-#### **Scene 4: Blockchain Trust, Section 63 BSA Dossier & Tamper Demo (3:00 – 4:15)**
-* **Visual:** Show the **Evidentiary Dossier Card** in the Android app with its green `IMMUTABLE` badge and Section 63 BSA certificate.
-* **Visual:** Run `.venv/bin/python3 -m audit.tamper_demo` in terminal, showing the Merkle tree inclusion proof verifying in milliseconds and instantly catching disk-level risk score tampering.
-* **Narration:** *"Under the new Bharatiya Sakshya Adhiniyam, 2023, digital evidence must be tamper-evident. CyberShield anchors every action in an Ed25519-signed Sparse Merkle Tree, generating O(log N) inclusion proofs for instant judicial verification."*
-
-#### **Scene 5: Summary & Impact (4:15 – 5:00)**
-* **Visual:** Summary slide showing key stats: 166 automated test cases, 25,000+ accounts benchmark, sub-second graph traversal.
-* **Narration:** *"CyberShield provides I4C and law enforcement with a proactive, high-throughput, and legally unassailable weapon against cyber fraud."*
+4. **Slide 4: Technical Scalability, Validation Benchmarks & Real-World Impact**
+   * Kafka cluster graph synchronization, 10,000+ TPS capacity, +145% predictor lift, and 177 verified automated tests.
 
 ---
 
 ### 8. Artifact & Binary Locations
-* **Debug APK:** `CyberShield/app/build/outputs/apk/debug/app-debug.apk`
+* **Signed Release APK:** `release_apk/CyberShield-v1.0.0-release.apk` (52.01 MiB, SHA-256: `91cd2833e004e0758b1a33dbb11889b4f8b544294946a696be2b4c17f563a5cb`)
+* **I4C Keystore:** `CyberShield/cybershield-release.jks` (RSA 2048-bit, 10,000 days validity)
 * **Core API:** `api/server.py`
 * **Merkle Ledger:** `audit/merkle_ledger.py`
 * **Section 63 BSA Dossier:** `export/evidentiary_dossier.py`
 * **Cluster Graph Store:** `pipeline/cluster_graph.py`
+* **Validation Report:** `data/output/validation_report.json`
+
+---
+
+### 9. Core Engineering Team & Attribution
+
+| Contributor | GitHub Handle | Key Architectural Responsibilities |
+| :--- | :--- | :--- |
+| **seucra** | [`@seucra`](https://github.com/seucra) | Architecture, Full-Stack Systems, Merkle Ledger & Section 63 BSA Engine |
+| **Harshada Avhad** | [`@harshada2576`](https://github.com/harshada2576) | Team Lead, ML Systems, Hybrid Scoring & Geospatial Intelligence |
+| **Shreya Nikam** | [`@NikamShreya696`](https://github.com/NikamShreya696) | Data Engineering, 1 Crore Synthetic Generator & Macro Trend Modeling |
+| **The-CoDexR3kt** | [`@The-CoDexR3kt`](https://github.com/The-CoDexR3kt) | Backend Infrastructure, Kafka Streams & Fast Storage Persistence |
+| **Abaan Mhaisker** | [`@abaanmhaisker`](https://github.com/abaanmhaisker) | Security Architecture, Cryptography & Prediction Validation Engine |
+| **Dakshata Mhatre** | [`@DakshataMhatre`](https://github.com/DakshataMhatre) | Mobile Engineering, Jetpack Compose Radar Map & Tactical UI/UX |
+
+---
+
+### 10. Licensing & Legal Governance
+
+This software is licensed under the **Apache License, Version 2.0** (`LICENSE`).
+* **Explicit Patent Grant (Section 3):** Protects deploying LEAs, banks, and users from third-party patent assertion.
+* **Statutory Alignment:** Fully compliant with Digital Personal Data Protection (DPDP) Act, 2023 and Section 63 of Bharatiya Sakshya Adhiniyam (BSA), 2023.
