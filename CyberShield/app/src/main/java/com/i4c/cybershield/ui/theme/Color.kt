@@ -38,3 +38,8 @@ val ChipSelectedBg     = AlertOrange.copy(alpha = 0.15f)
 val ChipUnselectedBg   = SurfaceCharcoal
 val DisabledGray       = Color(0xFF6B6560)
 val LockdownOverlay    = AlertOrange.copy(alpha = 0.92f)
+
+// ─── Aliases for Validation & Integration UI components ─────────────────
+val AccentCyan         = MediumCyan
+val StatusActive       = SuccessGreen
+val AccentAmber        = WarningYellow

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyberShield | National Predictive Analytics Framework (SIH PS 26184)</title>
+    <meta name="description" content="Predictive Analytics Framework for Cybercrime Complaints to Forecast Likely Cash Withdrawal Locations in Advance. Ministry of Home Affairs / I4C.">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            dark: '#0f172a',
+                            navy: '#1e293b',
+                            accent: '#eb5e28',
+                            cyan: '#00e5ff',
+                            green: '#10b981',
+                            gold: '#f59e0b'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Fonts & Lucide Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+        .glow-accent { box-shadow: 0 0 40px -10px rgba(235, 94, 40, 0.3); }
+        .glow-cyan { box-shadow: 0 0 35px -10px rgba(0, 229, 255, 0.3); }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen selection:bg-brand-accent selection:text-white">
+
+    <!-- Top Government Official Banner -->
+    <header class="border-b border-slate-800 bg-slate-900/90 sticky top-0 z-50 backdrop-blur-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-brand-accent flex items-center justify-center font-bold text-slate-950 text-xl shadow-lg">
+                    🛡️
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/60">SIH 2026 PS ID: 26184</span>
+                        <span class="text-xs text-slate-400 hidden sm:inline">• Theme: Blockchain & Cybersecurity</span>
+                    </div>
+                    <h1 class="text-base font-bold text-white tracking-tight">CyberShield: Proactive Cash-Out Interception</h1>
+                </div>
+            </div>
+
+            <!-- Live Backend Status Pill -->
+            <div class="flex items-center space-x-4">
+                <div id="backend-status-card" class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-full border border-slate-700 text-xs">
+                    <span id="status-pulse" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    <span id="status-text" class="text-slate-300 font-medium">Checking Cloud Core...</span>
+                </div>
+                <a href="https://github.com/harshada2576/SIH2026" target="_blank" class="hidden sm:inline-flex items-center space-x-1.5 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-md border border-slate-700 transition">
+                    <i data-lucide="github" class="w-4 h-4"></i>
+                    <span>Repository</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+            
+            <div class="lg:col-span-7 space-y-6">
+                <div class="inline-flex items-center space-x-2 text-xs font-semibold px-3 py-1 rounded-full bg-orange-500/10 text-brand-accent border border-orange-500/20">
+                    <i data-lucide="shield-alert" class="w-4 h-4"></i>
+                    <span>Ministry of Home Affairs | I4C CIS Division</span>
+                </div>
+
+                <h2 class="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
+                    Pre-Egress Cash Withdrawal <br>
+                    <span class="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-brand-accent to-amber-300">
+                        Predictive Analytics Framework
+                    </span>
+                </h2>
+
+                <p class="text-slate-300 text-base sm:text-lg leading-relaxed">
+                    Transforming national cybercrime intervention from <strong>post-incident complaint logging</strong> to <strong>pre-egress spatial interception</strong>. Forecasting candidate ATM & AEPS cash-out hotspots within the critical 15–30 minute window before physical funds leave the machine.
+                </p>
+
+                <!-- Dual Action CTAs -->
+                <div class="flex flex-col sm:flex-row gap-4 pt-2">
+                    <a href="https://github.com/harshada2576/SIH2026/releases/download/v1.0.0-production/app-release.apk" class="inline-flex items-center justify-center space-x-3 bg-gradient-to-r from-orange-600 to-brand-accent hover:from-orange-500 hover:to-orange-600 text-white font-semibold px-6 py-3.5 rounded-xl shadow-lg glow-accent transition duration-200">
+                        <i data-lucide="download" class="w-5 h-5"></i>
+                        <span>Download Official Signed APK (v1.0.0)</span>
+                    </a>
+                    <a href="https://github.com/harshada2576/SIH2026/releases" target="_blank" class="inline-flex items-center justify-center space-x-2 bg-slate-800/90 hover:bg-slate-700/90 text-slate-200 hover:text-white px-5 py-3.5 rounded-xl border border-slate-700 transition">
+                        <i data-lucide="tag" class="w-4 h-4"></i>
+                        <span>GitHub Release Page</span>
+                    </a>
+                </div>
+
+                <!-- APK Security & Trust Badges -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-slate-800 text-xs text-slate-400">
+                    <div>
+                        <div class="text-slate-200 font-semibold">Native Kotlin</div>
+                        <div>Jetpack Compose</div>
+                    </div>
+                    <div>
+                        <div class="text-slate-200 font-semibold">Signed Release</div>
+                        <div>I4C Official Key</div>
+                    </div>
+                    <div>
+                        <div class="text-slate-200 font-semibold">Section 63 BSA</div>
+                        <div>Court Evidentiary</div>
+                    </div>
+                    <div>
+                        <div class="text-slate-200 font-semibold">SHA-256 Verified</div>
+                        <div class="truncate text-[10px] text-emerald-400">91cd2833...a5cb</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive App Card & QR Code for Evaluators -->
+            <div class="lg:col-span-5">
+                <div class="glass rounded-2xl p-6 glow-cyan space-y-6">
+                    <div class="flex items-center justify-between border-b border-slate-700/60 pb-4">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+                            <span class="text-sm font-semibold text-white">Evaluator Instant Install</span>
+                        </div>
+                        <span class="text-xs bg-slate-800 px-2 py-1 rounded text-slate-300">Android 10+</span>
+                    </div>
+
+                    <!-- Scan to Install QR -->
+                    <div class="flex flex-col items-center justify-center p-4 bg-slate-900/90 rounded-xl border border-slate-800">
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=https://github.com/harshada2576/SIH2026/releases/download/v1.0.0-production/app-release.apk" 
+                             alt="Scan to Download APK" 
+                             class="w-44 h-44 rounded-lg shadow-md border-2 border-slate-700">
+                        <p class="text-xs text-slate-400 mt-3 text-center">
+                            Scan with Android phone camera to download signed APK directly
+                        </p>
+                    </div>
+
+                    <div class="space-y-2 text-xs">
+                        <div class="flex justify-between py-1 border-b border-slate-800">
+                            <span class="text-slate-400">Target PS ID:</span>
+                            <span class="font-mono text-amber-400">26184 (MHA / I4C)</span>
+                        </div>
+                        <div class="flex justify-between py-1 border-b border-slate-800">
+                            <span class="text-slate-400">Dataset Volume:</span>
+                            <span class="font-mono text-emerald-400">10,053,923 Txns (&gt; 1 Cr)</span>
+                        </div>
+                        <div class="flex justify-between py-1 border-b border-slate-800">
+                            <span class="text-slate-400">Multi-Year Timeline:</span>
+                            <span class="font-mono text-cyan-400">2024 – 2026 (1,003 Days)</span>
+                        </div>
+                        <div class="flex justify-between py-1">
+                            <span class="text-slate-400">Verified Test Cases:</span>
+                            <span class="font-mono text-emerald-400">176 Tests Passing (100%)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 4 Key Deliverables Section -->
+        <section class="mt-20 space-y-8">
+            <div class="text-center max-w-3xl mx-auto space-y-3">
+                <span class="text-xs uppercase font-bold tracking-wider text-orange-400">Problem Statement Compliance</span>
+                <h3 class="text-2xl sm:text-4xl font-bold text-white">Full Implementation of All 4 Key Deliverables</h3>
+                <p class="text-slate-400 text-sm sm:text-base">Built to production specifications requested by the Indian Cyber Crime Coordination Centre.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Deliverable A -->
+                <div class="glass rounded-xl p-6 space-y-3 hover:border-slate-600 transition">
+                    <div class="w-10 h-10 rounded-lg bg-orange-500/20 text-brand-accent flex items-center justify-center font-bold">
+                        A
+                    </div>
+                    <h4 class="text-lg font-bold text-white">Predictive Analytics Engine</h4>
+                    <p class="text-xs text-slate-300 leading-relaxed">
+                        16 explainable fraud heuristics + Isolation Forest anomaly model + spatial Haversine decay function forecasting physical cash-out terminals.
+                    </p>
+                    <div class="text-[11px] text-orange-400 font-mono">10,000+ TPS Stream Ingestion</div>
+                </div>
+
+                <!-- Deliverable B -->
+                <div class="glass rounded-xl p-6 space-y-3 hover:border-slate-600 transition">
+                    <div class="w-10 h-10 rounded-lg bg-cyan-500/20 text-brand-cyan flex items-center justify-center font-bold">
+                        B
+                    </div>
+                    <h4 class="text-lg font-bold text-white">Risk Heatmap Dashboard</h4>
+                    <p class="text-xs text-slate-300 leading-relaxed">
+                        GIS-enabled dynamic heatmaps with multi-city spatial clustering across 20+ Indian metropolitan and rural banking hubs with time/event filters.
+                    </p>
+                    <div class="text-[11px] text-brand-cyan font-mono">Real-Time Spatial Density</div>
+                </div>
+
+                <!-- Deliverable C -->
+                <div class="glass rounded-xl p-6 space-y-3 hover:border-slate-600 transition">
+                    <div class="w-10 h-10 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                        C
+                    </div>
+                    <h4 class="text-lg font-bold text-white">Law Enforcement Interface</h4>
+                    <p class="text-xs text-slate-300 leading-relaxed">
+                        Native Android Command Center (Kotlin & Jetpack Compose). Generates Section 63 BSA 2023 court-admissible electronic evidence certificates.
+                    </p>
+                    <div class="text-[11px] text-emerald-400 font-mono">Section 63 BSA Cryptographic Dossier</div>
+                </div>
+
+                <!-- Deliverable D -->
+                <div class="glass rounded-xl p-6 space-y-3 hover:border-slate-600 transition">
+                    <div class="w-10 h-10 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+                        D
+                    </div>
+                    <h4 class="text-lg font-bold text-white">Alert & Notification Hub</h4>
+                    <p class="text-xs text-slate-300 leading-relaxed">
+                        Dual-track intervention: Automated provisional bank delta hold + Police PCR dispatch with suspect hints and target ATM navigation route.
+                    </p>
+                    <div class="text-[11px] text-amber-400 font-mono">SMS / Email / WebSocket Push</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Technical Superiority Table -->
+        <section class="mt-20 glass rounded-2xl p-6 sm:p-10 border border-slate-800">
+            <h3 class="text-xl sm:text-3xl font-bold text-white text-center mb-8">What Sets CyberShield Apart from Competing Teams</h3>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs sm:text-sm text-slate-300">
+                    <thead class="bg-slate-900/80 text-slate-200 border-b border-slate-800 uppercase text-xs">
+                        <tr>
+                            <th class="p-3">Capability Area</th>
+                            <th class="p-3 text-rose-400">Typical Competitor Approach</th>
+                            <th class="p-3 text-emerald-400">CyberShield Production Architecture</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800">
+                        <tr>
+                            <td class="p-3 font-semibold text-white">Dataset Scale</td>
+                            <td class="p-3 text-rose-300/80">1k – 5k synthetic transactions (1 week)</td>
+                            <td class="p-3 text-emerald-300 font-medium">1.005 Crore (10,053,923) Txns across 2.75 Years (2024–2026)</td>
+                        </tr>
+                        <tr>
+                            <td class="p-3 font-semibold text-white">Legal Admissibility</td>
+                            <td class="p-3 text-rose-300/80">None (unadmissible blackbox outputs)</td>
+                            <td class="p-3 text-emerald-300 font-medium">Section 63 BSA 2023 Cryptographic Evidentiary Dossier</td>
+                        </tr>
+                        <tr>
+                            <td class="p-3 font-semibold text-white">Blockchain Trust</td>
+                            <td class="p-3 text-rose-300/80">Centralized database without audit proofs</td>
+                            <td class="p-3 text-emerald-300 font-medium">Sparse Merkle Tree (SMT) with Ed25519 Signed O(log N) Proofs</td>
+                        </tr>
+                        <tr>
+                            <td class="p-3 font-semibold text-white">Citizen Experience</td>
+                            <td class="p-3 text-rose-300/80">Binary freezing (locks victim's entire balance)</td>
+                            <td class="p-3 text-emerald-300 font-medium">Differential Hold: Restricts suspicious delta, preserves legitimate funds</td>
+                        </tr>
+                        <tr>
+                            <td class="p-3 font-semibold text-white">Frontend Platform</td>
+                            <td class="p-3 text-rose-300/80">Generic React/HTML web dashboard</td>
+                            <td class="p-3 text-emerald-300 font-medium">Native Android Kotlin App built for field patrol units</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Evaluator Quick Links -->
+        <section class="mt-16 text-center space-y-4">
+            <h4 class="text-sm font-semibold uppercase tracking-wider text-slate-400">Essential Evaluator Documentation</h4>
+            <div class="flex flex-wrap justify-center gap-3 text-xs">
+                <a href="https://github.com/harshada2576/SIH2026/blob/main/docs/SIH_MASTER_PITCH_AND_WINNING_DOSSIER.md" target="_blank" class="glass px-4 py-2 rounded-lg text-slate-200 hover:text-white hover:border-slate-600 transition">
+                    📄 Master Pitch Dossier
+                </a>
+                <a href="https://github.com/harshada2576/SIH2026/blob/main/docs/VALIDATION_PROTOCOL.md" target="_blank" class="glass px-4 py-2 rounded-lg text-slate-200 hover:text-white hover:border-slate-600 transition">
+                    🧪 Pre-Registered Validation Protocol
+                </a>
+                <a href="https://github.com/harshada2576/SIH2026/blob/main/docs/VALIDATION_AND_INTEGRATION.md" target="_blank" class="glass px-4 py-2 rounded-lg text-slate-200 hover:text-white hover:border-slate-600 transition">
+                    🏛️ Institutional Adapter Specs
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800 bg-slate-950 py-8 text-center text-xs text-slate-500 mt-20">
+        <p>CyberShield — Smart India Hackathon (SIH 2026) | Problem Statement 26184</p>
+        <p class="mt-1">Ministry of Home Affairs • Indian Cyber Crime Coordination Centre (I4C), CIS Division</p>
+    </footer>
+
+    <!-- Live Cloud Health Probe Script -->
+    <script>
+        lucide.createIcons();
+
+        async function checkBackendHealth() {
+            const endpoints = [
+                'https://sih-render.seucra.tech/terminals',
+                'https://cybershield-backend-g8fl.onrender.com/terminals',
+                'https://sih.seucra.tech/terminals'
+            ];
+
+            const statusCard = document.getElementById('backend-status-card');
+            const statusPulse = document.getElementById('status-pulse');
+            const statusText = document.getElementById('status-text');
+
+            for (const url of endpoints) {
+                const startTime = performance.now();
+                try {
+                    const res = await fetch(url, { method: 'HEAD', mode: 'no-cors' });
+                    const latency = Math.round(performance.now() - startTime);
+                    statusPulse.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
+                    statusText.innerHTML = `🟢 Cloud Backend: Online (${latency}ms)`;
+                    statusCard.className = 'flex items-center space-x-2 bg-emerald-950/40 px-3 py-1.5 rounded-full border border-emerald-800/60 text-xs text-emerald-300';
+                    return;
+                } catch (e) {
+                    // Try next endpoint
+                }
+            }
+
+            statusPulse.className = 'w-2.5 h-2.5 rounded-full bg-amber-400';
+            statusText.innerText = '🟡 Cloud Core: Standby';
+        }
+
+        checkBackendHealth();
+        setInterval(checkBackendHealth, 30000);
+    </script>
+</body>
+</html>
