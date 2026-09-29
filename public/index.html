@@ -892,10 +892,10 @@
                 attributionControl: false
             }).setView([28.62319, 77.21100], 12);
 
-            // Dark CartoDB Tiles
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                maxZoom: 18,
-                subdomains: 'abcd'
+            // Free Dark Tactical Tiles (Zero API Key required - ESRI World Dark Gray Canvas)
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+                maxZoom: 16,
+                attribution: 'Tiles &copy; Esri'
             }).addTo(tacticalMap);
 
             // Fetch live terminals from Cloud Backend
