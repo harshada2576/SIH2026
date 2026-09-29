@@ -197,6 +197,9 @@ async def lifespan(app: FastAPI):
     await GLOBAL_EVENT_BUS.stop()
 
 
+from api.validation_routes import router as validation_router
+from api.integration_routes import router as integration_router
+
 app = FastAPI(
     title="CyberShield SIH26184 Backend",
     description="Predictive Cash Egress Interception Platform Backend & Real-time Live Alert Hub",
@@ -211,6 +214,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(validation_router)
+app.include_router(integration_router)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

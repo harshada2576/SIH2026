@@ -104,19 +104,39 @@ def _apply_shared_kyc_identity(accounts: list[dict], shared_kyc: str) -> None:
         acc["kyc_identity_id"] = shared_kyc
 
 
-def _pick_cashout_terminal(cashout_account: dict, terminals: list[dict], rng: random.Random) -> dict:
-    """Pick terminal in or near account's district, or fallback to pool."""
+def _pick_cashout_terminal(cashout_account: dict, terminals: list[dict], rng: random.Random, difficulty_tier: str = "EASY") -> dict:
+    """Pick terminal based on difficulty tier:
+    EASY: Same district / region, recorded in account historical terminal list.
+    MEDIUM: Same district / near centroid, NOT pre-recorded in history.
+    HARD: Different district / city, NOT pre-recorded in history.
+    """
     reg = cashout_account.get("account_region")
     if _TERMINALS_BY_DISTRICT and reg in _TERMINALS_BY_DISTRICT:
-        return rng.choice(_TERMINALS_BY_DISTRICT[reg])
-    same_district = [t for t in terminals if t["district"] == reg]
-    pool = same_district if same_district else terminals
-    return rng.choice(pool)
+        same_district = _TERMINALS_BY_DISTRICT[reg]
+    else:
+        same_district = [t for t in terminals if t.get("district") == reg]
+    diff_district = [t for t in terminals if t.get("district") != reg]
+
+    if difficulty_tier == "EASY":
+        pool = same_district if same_district else terminals
+        chosen = rng.choice(pool)
+        _record_terminal_history([cashout_account], chosen["terminal_id"])
+        return chosen
+    elif difficulty_tier == "MEDIUM":
+        pool = same_district if same_district else terminals
+        unseen = [t for t in pool if t["terminal_id"] not in cashout_account.get("historical_terminal_ids", [])]
+        return rng.choice(unseen) if unseen else rng.choice(pool)
+    else:  # HARD
+        pool = diff_district if diff_district else terminals
+        unseen = [t for t in pool if t["terminal_id"] not in cashout_account.get("historical_terminal_ids", [])]
+        return rng.choice(unseen) if unseen else rng.choice(pool)
 
 
 def _record_terminal_history(accounts: list[dict], terminal_id: str) -> None:
     """Record historical terminal affinity."""
     for acc in accounts:
+        if "historical_terminal_ids" not in acc:
+            acc["historical_terminal_ids"] = []
         if terminal_id not in acc["historical_terminal_ids"]:
             acc["historical_terminal_ids"].append(terminal_id)
 

@@ -13,14 +13,14 @@ from detection.rules.base import RuleResult
 
 
 def network_terminal_frequency(
-    graph: GraphStore, account_id: str, degrees: int = 1,
+    graph: GraphStore, account_id: str, degrees: int = 1, as_of: Optional[datetime] = None,
 ) -> Counter:
     """How often each terminal appears in the historical cash-outs of the account
     and its N-hop network. Returns a Counter keyed by terminal_id."""
-    members = {account_id} | graph.get_neighborhood(account_id, degrees=degrees)
+    members = {account_id} | graph.get_neighborhood(account_id, degrees=degrees, as_of=as_of)
     freq: Counter = Counter()
     for member in members:
-        freq.update(graph.historical_terminal_ids(member))
+        freq.update(graph.historical_terminal_ids(member, as_of=as_of))
     return freq
 
 

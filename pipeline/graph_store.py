@@ -300,6 +300,8 @@ class GraphStore:
         if not self.has_account(account_id):
             return set()
 
+        as_of_dt = _as_utc(as_of) if as_of is not None else None
+
         seen: Set[str] = set()
         frontier = deque([(account_id, 0)])
 
@@ -307,9 +309,26 @@ class GraphStore:
             node, depth = frontier.popleft()
             if depth >= degrees:
                 continue
-            nbrs = set(self.graph.successors(node)) | set(self.graph.predecessors(node))
-            for nbr in nbrs:
+            raw_nbrs = set(self.graph.successors(node)) | set(self.graph.predecessors(node))
+            for nbr in raw_nbrs:
                 if nbr not in seen and nbr != account_id:
+                    if as_of_dt is not None:
+                        edge_data_out = self.graph.get_edge_data(node, nbr) or {}
+                        edge_data_in = self.graph.get_edge_data(nbr, node) or {}
+                        valid_edge = False
+                        for key, data in edge_data_out.items():
+                            ts = data.get("timestamp")
+                            if ts and _as_utc(ts) < as_of_dt:
+                                valid_edge = True
+                                break
+                        if not valid_edge:
+                            for key, data in edge_data_in.items():
+                                ts = data.get("timestamp")
+                                if ts and _as_utc(ts) < as_of_dt:
+                                    valid_edge = True
+                                    break
+                        if not valid_edge:
+                            continue
                     seen.add(nbr)
                     frontier.append((nbr, depth + 1))
         return seen
@@ -349,17 +368,32 @@ class GraphStore:
         sharers.discard(account_id)
         return sharers
 
-    def historical_terminal_affinity(self, account_id: str) -> List[str]:
+    def historical_terminal_affinity(self, account_id: str, as_of: Optional[datetime] = None) -> List[str]:
         """Terminals this account has historically cashed out at."""
         acc = self.accounts.get(account_id, {})
-        if "historical_terminal_ids" in acc:
-            return list(acc["historical_terminal_ids"])
-        meta = self._metadata.get(account_id)
-        return list(meta.historical_terminal_ids) if meta else []
+        terms = list(acc.get("historical_terminal_ids", []))
+        if not terms:
+            meta = self._metadata.get(account_id)
+            if meta:
+                terms = list(meta.historical_terminal_ids)
 
-    def historical_terminal_ids(self, account_id: str) -> List[str]:
+        if as_of is not None and account_id in self._terminal_usage:
+            as_of_dt = _as_utc(as_of)
+            usage_terms = [
+                t["terminal_id"]
+                for t in self._terminal_usage[account_id]
+                if _as_utc(t["timestamp"]) < as_of_dt
+            ]
+            terms = list(set(terms + usage_terms))
+        elif account_id in self._terminal_usage:
+            usage_terms = [t["terminal_id"] for t in self._terminal_usage[account_id]]
+            terms = list(set(terms + usage_terms))
+
+        return terms
+
+    def historical_terminal_ids(self, account_id: str, as_of: Optional[datetime] = None) -> List[str]:
         """Alias for historical_terminal_affinity."""
-        return self.historical_terminal_affinity(account_id)
+        return self.historical_terminal_affinity(account_id, as_of=as_of)
 
     def account_chain_depth(self, account_id: str, max_depth: int = 3) -> int:
         """
