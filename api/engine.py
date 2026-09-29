@@ -1099,9 +1099,11 @@ class CaseEngine:
 
         # 5. Suspicious Terminal Activity from terminal pool
         if not case_id:
-            for t in self.terminals:
+            existing_tids = {p.get("terminal_id") for p in raw_points if p.get("terminal_id")}
+            sample_terminals = self.terminals[:250] if len(self.terminals) > 250 else self.terminals
+            for t in sample_terminals:
                 tid = t.get("terminal_id")
-                if any(p.get("terminal_id") == tid for p in raw_points):
+                if tid in existing_tids:
                     continue
                 try:
                     lat_val = t.get("latitude")
