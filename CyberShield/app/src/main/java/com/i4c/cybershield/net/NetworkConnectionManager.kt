@@ -48,6 +48,15 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
         const val PRIMARY_PUBLIC_URL = "https://sih.seucra.tech"
         const val PRIMARY_WS_URL = "wss://sih.seucra.tech/ws"
         const val PRIMARY_HOST = "sih.seucra.tech"
+
+        const val RENDER_CUSTOM_URL = "https://sih-render.seucra.tech"
+        const val RENDER_CUSTOM_WS = "wss://sih-render.seucra.tech/ws"
+        const val RENDER_CUSTOM_HOST = "sih-render.seucra.tech"
+
+        const val RENDER_DIRECT_URL = "https://cybershield-backend-g8fl.onrender.com"
+        const val RENDER_DIRECT_WS = "wss://cybershield-backend-g8fl.onrender.com/ws"
+        const val RENDER_DIRECT_HOST = "cybershield-backend-g8fl.onrender.com"
+
         private const val DEFAULT_PORT = 5003
         private const val UDP_DISCOVERY_PORT = 8888
         private const val NSD_SERVICE_TYPE = "_cybershield._tcp."
@@ -136,12 +145,21 @@ class NetworkConnectionManager private constructor(private val appContext: Conte
 
         discoveryJob?.cancel()
         discoveryJob = scope.launch {
-            // 1. Primary fast check: Cloudflare Tunnel endpoint
-            if (verifyHealthUrl(PRIMARY_PUBLIC_URL)) {
-                withContext(Dispatchers.Main) {
-                    onBackendResolved(PRIMARY_PUBLIC_URL, PRIMARY_WS_URL, PRIMARY_HOST, 443, "Cloudflare Tunnel")
+            // 1. Prioritized Cloud Endpoints
+            val cloudCandidates = listOf(
+                Triple(PRIMARY_PUBLIC_URL, PRIMARY_WS_URL, PRIMARY_HOST to "Cloudflare Tunnel (sih.seucra.tech)"),
+                Triple(RENDER_CUSTOM_URL, RENDER_CUSTOM_WS, RENDER_CUSTOM_HOST to "Render Cloud (sih-render.seucra.tech)"),
+                Triple(RENDER_DIRECT_URL, RENDER_DIRECT_WS, RENDER_DIRECT_HOST to "Render Direct (cybershield-backend)")
+            )
+
+            for ((url, ws, hostMeta) in cloudCandidates) {
+                val (host, label) = hostMeta
+                if (verifyHealthUrl(url)) {
+                    withContext(Dispatchers.Main) {
+                        onBackendResolved(url, ws, host, 443, label)
+                    }
+                    return@launch
                 }
-                return@launch
             }
 
             acquireMulticastLock()
