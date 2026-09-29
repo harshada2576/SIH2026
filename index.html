@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CyberShield | National Predictive Analytics Framework (SIH PS 26184)</title>
-    <meta name="description" content="Predictive Analytics Framework for Cybercrime Complaints to Forecast Likely Cash Withdrawal Locations in Advance. Ministry of Home Affairs / I4C.">
+    <title>CyberShield | National Predictive Analytics Framework for Cybercrime Interception (SIH PS 26184)</title>
+    <meta name="description" content="Predictive Analytics Framework for Cybercrime Complaints to Forecast Likely Cash Withdrawal Locations in Advance. Ministry of Home Affairs, Indian Cyber Crime Coordination Centre (I4C).">
+    
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -12,57 +13,93 @@
             theme: {
                 extend: {
                     colors: {
-                        brand: {
-                            dark: '#0f172a',
-                            navy: '#1e293b',
-                            accent: '#eb5e28',
-                            cyan: '#00e5ff',
-                            green: '#10b981',
-                            gold: '#f59e0b'
+                        tactical: {
+                            bg: '#252422',
+                            surface: '#403D39',
+                            elevated: '#4A4641',
+                            divider: '#33312E',
+                            border: '#CCC5B9',
+                            text: '#FFFCF2',
+                            orange: '#EB5E28',
+                            green: '#38B000',
+                            cyan: '#00E5FF',
+                            gold: '#FFB703',
+                            red: '#D62828'
                         }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace']
                     }
                 }
             }
         }
     </script>
-    <!-- Fonts & Lucide Icons -->
+
+    <!-- Typography & Icons -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
+    
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        .font-mono { font-family: 'JetBrains Mono', monospace; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
-        .glow-accent { box-shadow: 0 0 40px -10px rgba(235, 94, 40, 0.3); }
-        .glow-cyan { box-shadow: 0 0 35px -10px rgba(0, 229, 255, 0.3); }
+        body {
+            background-color: #252422;
+            color: #FFFCF2;
+            font-family: 'Inter', sans-serif;
+        }
+        .code-block {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .tactical-border {
+            border: 1px solid rgba(204, 197, 185, 0.18);
+        }
+        .tactical-border-active {
+            border: 1px solid rgba(235, 94, 40, 0.45);
+        }
+        .tactical-shadow {
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+        }
+        .orange-glow {
+            box-shadow: 0 0 35px -8px rgba(235, 94, 40, 0.28);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #252422; }
+        ::-webkit-scrollbar-thumb { background: #403D39; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #EB5E28; }
     </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen selection:bg-brand-accent selection:text-white">
+<body class="selection:bg-tactical-orange selection:text-white">
 
-    <!-- Top Government Official Banner -->
-    <header class="border-b border-slate-800 bg-slate-900/90 sticky top-0 z-50 backdrop-blur-md">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
-            <div class="flex items-center space-x-3">
-                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-brand-accent flex items-center justify-center font-bold text-slate-950 text-xl shadow-lg">
+    <!-- Top Statutory Header Banner -->
+    <header class="border-b border-[#33312E] bg-[#1d1c1a]/95 sticky top-0 z-50 backdrop-blur-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center space-x-3.5">
+                <div class="w-10 h-10 rounded bg-[#403D39] border border-[#CCC5B9]/20 flex items-center justify-center font-bold text-xl text-tactical-orange shadow">
                     🛡️
                 </div>
                 <div>
-                    <div class="flex items-center space-x-2">
-                        <span class="text-xs font-semibold uppercase tracking-wider text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/60">SIH 2026 PS ID: 26184</span>
-                        <span class="text-xs text-slate-400 hidden sm:inline">• Theme: Blockchain & Cybersecurity</span>
+                    <div class="flex items-center space-x-2 text-[11px] uppercase tracking-wider font-semibold">
+                        <span class="text-tactical-orange">Ministry of Home Affairs (MHA)</span>
+                        <span class="text-neutral-500">•</span>
+                        <span class="text-[#CCC5B9]">I4C CIS Division</span>
+                        <span class="text-neutral-500">•</span>
+                        <span class="text-amber-400 bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-800/40">SIH PS ID: 26184</span>
                     </div>
-                    <h1 class="text-base font-bold text-white tracking-tight">CyberShield: Proactive Cash-Out Interception</h1>
+                    <div class="text-sm font-bold tracking-tight text-[#FFFCF2]">
+                        CyberShield: National Predictive Analytics Framework for Cybercrime Intervention
+                    </div>
                 </div>
             </div>
 
-            <!-- Live Backend Status Pill -->
-            <div class="flex items-center space-x-4">
-                <div id="backend-status-card" class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-full border border-slate-700 text-xs">
-                    <span id="status-pulse" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
-                    <span id="status-text" class="text-slate-300 font-medium">Checking Cloud Core...</span>
+            <!-- Cloud Backend Health Monitor -->
+            <div class="flex items-center space-x-3 text-xs">
+                <div id="backend-status-card" class="flex items-center space-x-2 bg-[#403D39] px-3 py-1.5 rounded border border-[#CCC5B9]/20">
+                    <span id="status-pulse" class="w-2.5 h-2.5 rounded-full bg-tactical-green animate-pulse"></span>
+                    <span id="status-text" class="text-[#CCC5B9] font-mono text-[11px]">Connecting Core...</span>
                 </div>
-                <a href="https://github.com/harshada2576/SIH2026" target="_blank" class="hidden sm:inline-flex items-center space-x-1.5 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-md border border-slate-700 transition">
+                <a href="https://github.com/harshada2576/SIH2026" target="_blank" class="flex items-center space-x-1.5 bg-[#33312E] hover:bg-[#403D39] text-[#CCC5B9] hover:text-[#FFFCF2] px-3 py-1.5 rounded border border-[#CCC5B9]/20 transition">
                     <i data-lucide="github" class="w-4 h-4"></i>
                     <span>Repository</span>
                 </a>
@@ -71,264 +108,398 @@
     </header>
 
     <!-- Hero Section -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-            
-            <div class="lg:col-span-7 space-y-6">
-                <div class="inline-flex items-center space-x-2 text-xs font-semibold px-3 py-1 rounded-full bg-orange-500/10 text-brand-accent border border-orange-500/20">
-                    <i data-lucide="shield-alert" class="w-4 h-4"></i>
-                    <span>Ministry of Home Affairs | I4C CIS Division</span>
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 lg:py-14 space-y-16">
+
+        <section class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            <div class="lg:col-span-7 space-y-5">
+                <div class="inline-flex items-center space-x-2 text-xs font-semibold px-2.5 py-1 rounded bg-tactical-orange/15 text-tactical-orange border border-tactical-orange/30">
+                    <i data-lucide="crosshair" class="w-3.5 h-3.5"></i>
+                    <span>OPERATIONAL ARCHITECTURE • CFCFRMS HELPLINE 1930 EVOLUTION</span>
                 </div>
 
-                <h2 class="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
+                <h1 class="text-3xl sm:text-5xl font-extrabold text-[#FFFCF2] tracking-tight leading-tight">
                     Pre-Egress Cash Withdrawal <br>
-                    <span class="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-brand-accent to-amber-300">
-                        Predictive Analytics Framework
-                    </span>
-                </h2>
+                    <span class="text-tactical-orange">Predictive Interception Framework</span>
+                </h1>
 
-                <p class="text-slate-300 text-base sm:text-lg leading-relaxed">
-                    Transforming national cybercrime intervention from <strong>post-incident complaint logging</strong> to <strong>pre-egress spatial interception</strong>. Forecasting candidate ATM & AEPS cash-out hotspots within the critical 15–30 minute window before physical funds leave the machine.
+                <p class="text-[#CCC5B9] text-sm sm:text-base leading-relaxed">
+                    National cyber fraud syndicates exploit a fatal vulnerability: victims report complaints hours after illicit fund transfer, long after funds have hopped through 3–6 mule accounts and been converted into physical cash at ATMs or AEPS kiosks.
                 </p>
 
-                <!-- Dual Action CTAs -->
-                <div class="flex flex-col sm:flex-row gap-4 pt-2">
-                    <a href="https://github.com/harshada2576/SIH2026/releases/download/v1.0.0-production/app-release.apk" class="inline-flex items-center justify-center space-x-3 bg-gradient-to-r from-orange-600 to-brand-accent hover:from-orange-500 hover:to-orange-600 text-white font-semibold px-6 py-3.5 rounded-xl shadow-lg glow-accent transition duration-200">
-                        <i data-lucide="download" class="w-5 h-5"></i>
-                        <span>Download Official Signed APK (v1.0.0)</span>
+                <p class="text-[#FFFCF2] text-sm leading-relaxed font-medium">
+                    CyberShield inverts this paradigm from <span class="text-rose-400 underline decoration-rose-500/40">post-incident reporting</span> to <span class="text-emerald-400 underline decoration-emerald-500/40">pre-egress real-time intervention</span>—forecasting candidate cash-out terminals and dispatching dual-track bank holds and police patrols within the critical 15–30 minute cash-out window.
+                </p>
+
+                <!-- Action CTAs -->
+                <div class="flex flex-col sm:flex-row gap-3 pt-3">
+                    <a href="https://github.com/harshada2576/SIH2026/releases/download/v1.0.0-production/app-release.apk" 
+                       class="inline-flex items-center justify-center space-x-2.5 bg-tactical-orange hover:bg-orange-600 text-white font-semibold px-5 py-3 rounded-lg shadow-lg orange-glow transition">
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span>Download Official Signed Release APK (v1.0.0)</span>
                     </a>
-                    <a href="https://github.com/harshada2576/SIH2026/releases" target="_blank" class="inline-flex items-center justify-center space-x-2 bg-slate-800/90 hover:bg-slate-700/90 text-slate-200 hover:text-white px-5 py-3.5 rounded-xl border border-slate-700 transition">
-                        <i data-lucide="tag" class="w-4 h-4"></i>
-                        <span>GitHub Release Page</span>
+                    <a href="https://github.com/harshada2576/SIH2026/releases" target="_blank" 
+                       class="inline-flex items-center justify-center space-x-2 bg-[#403D39] hover:bg-[#4A4641] text-[#FFFCF2] px-4 py-3 rounded-lg tactical-border transition text-sm">
+                        <i data-lucide="external-link" class="w-4 h-4"></i>
+                        <span>GitHub Release</span>
                     </a>
                 </div>
 
-                <!-- APK Security & Trust Badges -->
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-slate-800 text-xs text-slate-400">
+                <!-- Verified Security & Standards Badges -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-[#33312E] text-xs">
                     <div>
-                        <div class="text-slate-200 font-semibold">Native Kotlin</div>
-                        <div>Jetpack Compose</div>
+                        <div class="text-[#CCC5B9] text-[10px] uppercase">Engine Standard</div>
+                        <div class="text-[#FFFCF2] font-semibold">Native Kotlin / Compose</div>
                     </div>
                     <div>
-                        <div class="text-slate-200 font-semibold">Signed Release</div>
-                        <div>I4C Official Key</div>
+                        <div class="text-[#CCC5B9] text-[10px] uppercase">Evidentiary Code</div>
+                        <div class="text-[#FFFCF2] font-semibold">Section 63 BSA 2023</div>
                     </div>
                     <div>
-                        <div class="text-slate-200 font-semibold">Section 63 BSA</div>
-                        <div>Court Evidentiary</div>
+                        <div class="text-[#CCC5B9] text-[10px] uppercase">Keystore Authority</div>
+                        <div class="text-[#FFFCF2] font-semibold">I4C MHA Ed25519 / RSA</div>
                     </div>
                     <div>
-                        <div class="text-slate-200 font-semibold">SHA-256 Verified</div>
-                        <div class="truncate text-[10px] text-emerald-400">91cd2833...a5cb</div>
+                        <div class="text-[#CCC5B9] text-[10px] uppercase">Signed Package Hash</div>
+                        <div class="font-mono text-tactical-green text-[10px] truncate" title="91cd2833e004e0758b1a33dbb11889b4f8b544294946a696be2b4c17f563a5cb">
+                            91cd2833...a5cb
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Interactive App Card & QR Code for Evaluators -->
+            <!-- Evaluator Live Testing Console -->
             <div class="lg:col-span-5">
-                <div class="glass rounded-2xl p-6 glow-cyan space-y-6">
-                    <div class="flex items-center justify-between border-b border-slate-700/60 pb-4">
+                <div class="bg-[#403D39] rounded-xl p-5 tactical-border space-y-5 tactical-shadow">
+                    <div class="flex items-center justify-between border-b border-[#33312E] pb-3">
                         <div class="flex items-center space-x-2">
-                            <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
-                            <span class="text-sm font-semibold text-white">Evaluator Instant Install</span>
+                            <i data-lucide="smartphone" class="w-4 h-4 text-tactical-orange"></i>
+                            <span class="text-xs uppercase font-bold text-[#FFFCF2] tracking-wider">Mobile Command Center</span>
                         </div>
-                        <span class="text-xs bg-slate-800 px-2 py-1 rounded text-slate-300">Android 10+</span>
+                        <span class="text-[11px] font-mono bg-[#252422] text-tactical-green px-2 py-0.5 rounded border border-[#33312E]">v1.0.0 SIGNED</span>
                     </div>
 
-                    <!-- Scan to Install QR -->
-                    <div class="flex flex-col items-center justify-center p-4 bg-slate-900/90 rounded-xl border border-slate-800">
+                    <!-- Direct QR Code Scan for Evaluator Phone -->
+                    <div class="flex flex-col items-center justify-center p-4 bg-[#252422] rounded-lg border border-[#33312E]">
                         <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=https://github.com/harshada2576/SIH2026/releases/download/v1.0.0-production/app-release.apk" 
-                             alt="Scan to Download APK" 
-                             class="w-44 h-44 rounded-lg shadow-md border-2 border-slate-700">
-                        <p class="text-xs text-slate-400 mt-3 text-center">
-                            Scan with Android phone camera to download signed APK directly
+                             alt="Scan to Install CyberShield APK" 
+                             class="w-40 h-40 rounded p-1 bg-white shadow-inner">
+                        <p class="text-[11px] text-[#CCC5B9] mt-2.5 text-center">
+                            Scan with camera to install signed APK directly on Android 10+
                         </p>
                     </div>
 
-                    <div class="space-y-2 text-xs">
-                        <div class="flex justify-between py-1 border-b border-slate-800">
-                            <span class="text-slate-400">Target PS ID:</span>
-                            <span class="font-mono text-amber-400">26184 (MHA / I4C)</span>
+                    <!-- Live Telemetry Stats -->
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div class="bg-[#252422] p-2.5 rounded border border-[#33312E]">
+                            <div class="text-[10px] text-[#CCC5B9] uppercase">Dataset Scale</div>
+                            <div class="font-mono font-bold text-tactical-green">10,053,923 Txns</div>
+                            <div class="text-[10px] text-[#CCC5B9]">&gt; 1 Crore Chronological</div>
                         </div>
-                        <div class="flex justify-between py-1 border-b border-slate-800">
-                            <span class="text-slate-400">Dataset Volume:</span>
-                            <span class="font-mono text-emerald-400">10,053,923 Txns (&gt; 1 Cr)</span>
+                        <div class="bg-[#252422] p-2.5 rounded border border-[#33312E]">
+                            <div class="text-[10px] text-[#CCC5B9] uppercase">Temporal Horizon</div>
+                            <div class="font-mono font-bold text-tactical-cyan">2024 – 2026</div>
+                            <div class="text-[10px] text-[#CCC5B9]">1,003 Days / Multi-Year</div>
                         </div>
-                        <div class="flex justify-between py-1 border-b border-slate-800">
-                            <span class="text-slate-400">Multi-Year Timeline:</span>
-                            <span class="font-mono text-cyan-400">2024 – 2026 (1,003 Days)</span>
+                        <div class="bg-[#252422] p-2.5 rounded border border-[#33312E]">
+                            <div class="text-[10px] text-[#CCC5B9] uppercase">Terminals Mapped</div>
+                            <div class="font-mono font-bold text-[#FFFCF2]">50,000+ ATMs/AEPS</div>
+                            <div class="text-[10px] text-[#CCC5B9]">20+ Metros & Rural Hubs</div>
                         </div>
-                        <div class="flex justify-between py-1">
-                            <span class="text-slate-400">Verified Test Cases:</span>
-                            <span class="font-mono text-emerald-400">176 Tests Passing (100%)</span>
+                        <div class="bg-[#252422] p-2.5 rounded border border-[#33312E]">
+                            <div class="text-[10px] text-[#CCC5B9] uppercase">Test Pass Rate</div>
+                            <div class="font-mono font-bold text-tactical-green">100% (176 Tests)</div>
+                            <div class="text-[10px] text-[#CCC5B9]">Leakage Guard & Contracts</div>
                         </div>
                     </div>
-                </div>
-            </div>
-
-        </div>
-
-        <!-- 4 Key Deliverables Section -->
-        <section class="mt-20 space-y-8">
-            <div class="text-center max-w-3xl mx-auto space-y-3">
-                <span class="text-xs uppercase font-bold tracking-wider text-orange-400">Problem Statement Compliance</span>
-                <h3 class="text-2xl sm:text-4xl font-bold text-white">Full Implementation of All 4 Key Deliverables</h3>
-                <p class="text-slate-400 text-sm sm:text-base">Built to production specifications requested by the Indian Cyber Crime Coordination Centre.</p>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <!-- Deliverable A -->
-                <div class="glass rounded-xl p-6 space-y-3 hover:border-slate-600 transition">
-                    <div class="w-10 h-10 rounded-lg bg-orange-500/20 text-brand-accent flex items-center justify-center font-bold">
-                        A
-                    </div>
-                    <h4 class="text-lg font-bold text-white">Predictive Analytics Engine</h4>
-                    <p class="text-xs text-slate-300 leading-relaxed">
-                        16 explainable fraud heuristics + Isolation Forest anomaly model + spatial Haversine decay function forecasting physical cash-out terminals.
-                    </p>
-                    <div class="text-[11px] text-orange-400 font-mono">10,000+ TPS Stream Ingestion</div>
-                </div>
-
-                <!-- Deliverable B -->
-                <div class="glass rounded-xl p-6 space-y-3 hover:border-slate-600 transition">
-                    <div class="w-10 h-10 rounded-lg bg-cyan-500/20 text-brand-cyan flex items-center justify-center font-bold">
-                        B
-                    </div>
-                    <h4 class="text-lg font-bold text-white">Risk Heatmap Dashboard</h4>
-                    <p class="text-xs text-slate-300 leading-relaxed">
-                        GIS-enabled dynamic heatmaps with multi-city spatial clustering across 20+ Indian metropolitan and rural banking hubs with time/event filters.
-                    </p>
-                    <div class="text-[11px] text-brand-cyan font-mono">Real-Time Spatial Density</div>
-                </div>
-
-                <!-- Deliverable C -->
-                <div class="glass rounded-xl p-6 space-y-3 hover:border-slate-600 transition">
-                    <div class="w-10 h-10 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-                        C
-                    </div>
-                    <h4 class="text-lg font-bold text-white">Law Enforcement Interface</h4>
-                    <p class="text-xs text-slate-300 leading-relaxed">
-                        Native Android Command Center (Kotlin & Jetpack Compose). Generates Section 63 BSA 2023 court-admissible electronic evidence certificates.
-                    </p>
-                    <div class="text-[11px] text-emerald-400 font-mono">Section 63 BSA Cryptographic Dossier</div>
-                </div>
-
-                <!-- Deliverable D -->
-                <div class="glass rounded-xl p-6 space-y-3 hover:border-slate-600 transition">
-                    <div class="w-10 h-10 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
-                        D
-                    </div>
-                    <h4 class="text-lg font-bold text-white">Alert & Notification Hub</h4>
-                    <p class="text-xs text-slate-300 leading-relaxed">
-                        Dual-track intervention: Automated provisional bank delta hold + Police PCR dispatch with suspect hints and target ATM navigation route.
-                    </p>
-                    <div class="text-[11px] text-amber-400 font-mono">SMS / Email / WebSocket Push</div>
                 </div>
             </div>
         </section>
 
-        <!-- Technical Superiority Table -->
-        <section class="mt-20 glass rounded-2xl p-6 sm:p-10 border border-slate-800">
-            <h3 class="text-xl sm:text-3xl font-bold text-white text-center mb-8">What Sets CyberShield Apart from Competing Teams</h3>
+        <!-- The 4 Key Deliverables mandated by PS 26184 -->
+        <section class="space-y-6 pt-4">
+            <div class="border-b border-[#33312E] pb-3 flex flex-wrap items-end justify-between gap-2">
+                <div>
+                    <span class="text-xs uppercase font-bold tracking-wider text-tactical-orange">Statutory Specifications</span>
+                    <h2 class="text-2xl font-bold text-[#FFFCF2]">Compliance with All 4 Key Deliverables of PS 26184</h2>
+                </div>
+                <div class="text-xs text-[#CCC5B9]">Full Production Stack Delivery</div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                
+                <!-- Component A -->
+                <div class="bg-[#403D39] p-5 rounded-lg tactical-border space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="w-7 h-7 rounded bg-tactical-orange/20 text-tactical-orange flex items-center justify-center font-bold text-xs">A</span>
+                        <span class="text-[10px] font-mono text-[#CCC5B9]">Sub-15ms Ingestion</span>
+                    </div>
+                    <h3 class="text-base font-bold text-[#FFFCF2]">Predictive Analytics Engine</h3>
+                    <p class="text-xs text-[#CCC5B9] leading-relaxed">
+                        Hybrid scoring engine coupling 16 explainable heuristic rules (layering, rapid forwarding, shared KYC rings, geo-velocity impossible travel) with an unsupervised Isolation Forest anomaly model and spatial Haversine decay.
+                    </p>
+                    <div class="text-[11px] font-mono text-tactical-orange pt-1">
+                        $S(T_i, A) = \sum w_k \cdot \phi_k(A, T_i)$
+                    </div>
+                </div>
+
+                <!-- Component B -->
+                <div class="bg-[#403D39] p-5 rounded-lg tactical-border space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="w-7 h-7 rounded bg-tactical-cyan/20 text-tactical-cyan flex items-center justify-center font-bold text-xs">B</span>
+                        <span class="text-[10px] font-mono text-[#CCC5B9]">GIS Clustering</span>
+                    </div>
+                    <h3 class="text-base font-bold text-[#FFFCF2]">Risk Heatmap & Radar</h3>
+                    <p class="text-xs text-[#CCC5B9] leading-relaxed">
+                        Dynamic geographic density clustering across 20+ Indian hubs (Delhi/NCR, Mumbai, Bengaluru, Hyderabad, etc.) with drill-down temporal filters (24h, 7d, 30d) and event categorization (Blocked, Predicted, Confirmed).
+                    </p>
+                    <div class="text-[11px] font-mono text-tactical-cyan pt-1">
+                        Terminal Density Index (TDI)
+                    </div>
+                </div>
+
+                <!-- Component C -->
+                <div class="bg-[#403D39] p-5 rounded-lg tactical-border space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="w-7 h-7 rounded bg-tactical-green/20 text-tactical-green flex items-center justify-center font-bold text-xs">C</span>
+                        <span class="text-[10px] font-mono text-[#CCC5B9]">Kotlin Native</span>
+                    </div>
+                    <h3 class="text-base font-bold text-[#FFFCF2]">Law Enforcement Interface</h3>
+                    <p class="text-xs text-[#CCC5B9] leading-relaxed">
+                        Native Android Command Center built with Jetpack Compose. Generates Section 63 BSA 2023 evidentiary dossiers with SHA-256 canonical digests and Ed25519-signed Sparse Merkle Tree (SMT) proofs.
+                    </p>
+                    <div class="text-[11px] font-mono text-tactical-green pt-1">
+                        Section 63 BSA Electronic Certificate
+                    </div>
+                </div>
+
+                <!-- Component D -->
+                <div class="bg-[#403D39] p-5 rounded-lg tactical-border space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="w-7 h-7 rounded bg-amber-400/20 text-amber-400 flex items-center justify-center font-bold text-xs">D</span>
+                        <span class="text-[10px] font-mono text-[#CCC5B9]">Dual-Track Protocol</span>
+                    </div>
+                    <h3 class="text-base font-bold text-[#FFFCF2]">Alert & Notification Hub</h3>
+                    <p class="text-xs text-[#CCC5B9] leading-relaxed">
+                        Dual-track intervention: Automated provisional bank delta hold (protecting legitimate citizen balances) + Police PCR dispatch with suspect KYC hints, target ATM address, and arrival window (15–45 min).
+                    </p>
+                    <div class="text-[11px] font-mono text-amber-400 pt-1">
+                        SMS / Email / WebSocket Push
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- Technical Deep-Dive: Pre-Complaint Differential Hold Protocol -->
+        <section class="bg-[#33312E] rounded-xl p-6 tactical-border space-y-4">
+            <div class="flex items-center space-x-2 text-tactical-orange text-xs font-bold uppercase tracking-wider">
+                <i data-lucide="git-merge" class="w-4 h-4"></i>
+                <span>Institutional Banking Protocol • Zero Citizen Harassment</span>
+            </div>
+            <h3 class="text-xl font-bold text-[#FFFCF2]">The Pre-Complaint Differential Hold Protocol</h3>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs text-[#CCC5B9] leading-relaxed pt-2">
+                <div class="space-y-3">
+                    <div class="font-semibold text-rose-400">The Flaw of Traditional Binary Freezing:</div>
+                    <p>
+                        When a bank receives an alert, traditional systems freeze the customer's entire account. If an ordinary citizen had ₹25,000 savings and inadvertently received ₹80,000 from a compromised mule hop, their entire balance is locked, freezing their ability to buy groceries or pay rent, resulting in severe consumer litigation.
+                    </p>
+                    <div class="p-3 bg-[#252422] rounded border border-rose-900/40 text-rose-300 font-mono text-[11px]">
+                        Account Total: ₹1,05,000 ➔ Frozen: ₹1,05,000 ➔ Usable: ₹0 (Customer Distress)
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="font-semibold text-emerald-400">The CyberShield Differential Solution:</div>
+                    <p>
+                        CyberShield algorithms compute the exact suspicious exposure delta. The bank Core Banking System (CBS) places a provisional restriction <em>strictly on the suspicious incoming delta (₹80,000)</em> while leaving the pre-existing legitimate balance (₹25,000) fully accessible for daily expenditures.
+                    </p>
+                    <div class="p-3 bg-[#252422] rounded border border-emerald-900/40 text-emerald-300 font-mono text-[11px]">
+                        Account Total: ₹1,05,000 ➔ Held Delta: ₹80,000 ➔ Freely Usable: ₹25,000 ✅
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Interactive API & Live Telemetry Explorer -->
+        <section class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[#33312E] pb-3">
+                <div>
+                    <span class="text-xs uppercase font-bold tracking-wider text-tactical-orange">Live System Explorer</span>
+                    <h2 class="text-2xl font-bold text-[#FFFCF2]">Live Backend Endpoints & Institutional Contracts</h2>
+                </div>
+                <div class="text-xs text-[#CCC5B9] font-mono">
+                    Querying: <span id="current-endpoint-display" class="text-tactical-cyan">https://sih-render.seucra.tech</span>
+                </div>
+            </div>
+
+            <!-- Endpoint Selector Tabs -->
+            <div class="flex flex-wrap gap-2 text-xs font-mono">
+                <button onclick="fetchEndpoint('/cases')" class="endpoint-btn px-3 py-1.5 rounded bg-tactical-orange text-white font-semibold">GET /cases</button>
+                <button onclick="fetchEndpoint('/terminals')" class="endpoint-btn px-3 py-1.5 rounded bg-[#403D39] text-[#CCC5B9] hover:text-[#FFFCF2]">GET /terminals</button>
+                <button onclick="fetchEndpoint('/cases/NCRP-CASE-2026-0901/dossier')" class="endpoint-btn px-3 py-1.5 rounded bg-[#403D39] text-[#CCC5B9] hover:text-[#FFFCF2]">GET /dossier</button>
+                <button onclick="fetchEndpoint('/validation/report')" class="endpoint-btn px-3 py-1.5 rounded bg-[#403D39] text-[#CCC5B9] hover:text-[#FFFCF2]">GET /validation/report</button>
+                <button onclick="fetchEndpoint('/api/v1/integration/contracts')" class="endpoint-btn px-3 py-1.5 rounded bg-[#403D39] text-[#CCC5B9] hover:text-[#FFFCF2]">GET /integration/contracts</button>
+            </div>
+
+            <!-- JSON Output Viewer -->
+            <div class="bg-[#1d1c1a] rounded-lg p-4 border border-[#33312E] font-mono text-xs overflow-x-auto max-h-96">
+                <div class="flex justify-between items-center text-[10px] text-[#CCC5B9] pb-2 border-b border-[#33312E] mb-2">
+                    <span id="response-status">STATUS: READY TO QUERY</span>
+                    <span id="response-time">LATENCY: --</span>
+                </div>
+                <pre id="json-viewer" class="text-emerald-400 leading-relaxed whitespace-pre-wrap">// Tap any endpoint button above to test live cloud responses from the CyberShield Core API...</pre>
+            </div>
+        </section>
+
+        <!-- Technical Superiority Matrix vs Standard Hackathon Submissions -->
+        <section class="bg-[#403D39] rounded-xl p-6 tactical-border space-y-4">
+            <h3 class="text-xl font-bold text-[#FFFCF2]">Rigorous Engineering Standards vs Standard Submissions</h3>
             
             <div class="overflow-x-auto">
-                <table class="w-full text-left text-xs sm:text-sm text-slate-300">
-                    <thead class="bg-slate-900/80 text-slate-200 border-b border-slate-800 uppercase text-xs">
+                <table class="w-full text-left text-xs text-[#CCC5B9]">
+                    <thead class="bg-[#252422] text-[#FFFCF2] uppercase text-[11px] border-b border-[#33312E]">
                         <tr>
-                            <th class="p-3">Capability Area</th>
-                            <th class="p-3 text-rose-400">Typical Competitor Approach</th>
-                            <th class="p-3 text-emerald-400">CyberShield Production Architecture</th>
+                            <th class="p-3">Evaluation Parameter</th>
+                            <th class="p-3 text-rose-400">Typical Hackathon Approach</th>
+                            <th class="p-3 text-tactical-green font-bold">CyberShield Production Framework</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-800">
+                    <tbody class="divide-y divide-[#33312E]">
                         <tr>
-                            <td class="p-3 font-semibold text-white">Dataset Scale</td>
-                            <td class="p-3 text-rose-300/80">1k – 5k synthetic transactions (1 week)</td>
-                            <td class="p-3 text-emerald-300 font-medium">1.005 Crore (10,053,923) Txns across 2.75 Years (2024–2026)</td>
+                            <td class="p-3 font-semibold text-[#FFFCF2]">Dataset Volume & Multi-Year Span</td>
+                            <td class="p-3 text-rose-300">1k – 5k synthetic transactions (1 week)</td>
+                            <td class="p-3 text-emerald-300 font-medium">10,053,923 transactions across 2.75 years (2024–2026), 500k accounts, 50k terminals</td>
                         </tr>
                         <tr>
-                            <td class="p-3 font-semibold text-white">Legal Admissibility</td>
-                            <td class="p-3 text-rose-300/80">None (unadmissible blackbox outputs)</td>
-                            <td class="p-3 text-emerald-300 font-medium">Section 63 BSA 2023 Cryptographic Evidentiary Dossier</td>
+                            <td class="p-3 font-semibold text-[#FFFCF2]">Judicial & Statutory Admissibility</td>
+                            <td class="p-3 text-rose-300">None (unexplained blackbox outputs)</td>
+                            <td class="p-3 text-emerald-300 font-medium">Full Section 63 BSA 2023 Evidentiary Dossier with cryptographic Merkle proof anchoring</td>
                         </tr>
                         <tr>
-                            <td class="p-3 font-semibold text-white">Blockchain Trust</td>
-                            <td class="p-3 text-rose-300/80">Centralized database without audit proofs</td>
-                            <td class="p-3 text-emerald-300 font-medium">Sparse Merkle Tree (SMT) with Ed25519 Signed O(log N) Proofs</td>
+                            <td class="p-3 font-semibold text-[#FFFCF2]">Chain of Custody Immutability</td>
+                            <td class="p-3 text-rose-300">Centralized DB (mutable without audit)</td>
+                            <td class="p-3 text-emerald-300 font-medium">Sparse Merkle Tree (SMT) with Ed25519-signed blocks & O(log N) verification</td>
                         </tr>
                         <tr>
-                            <td class="p-3 font-semibold text-white">Citizen Experience</td>
-                            <td class="p-3 text-rose-300/80">Binary freezing (locks victim's entire balance)</td>
-                            <td class="p-3 text-emerald-300 font-medium">Differential Hold: Restricts suspicious delta, preserves legitimate funds</td>
+                            <td class="p-3 font-semibold text-[#FFFCF2]">Streaming Partition Convergence</td>
+                            <td class="p-3 text-rose-300">Single-node memory graph (crashes on scale)</td>
+                            <td class="p-3 text-emerald-300 font-medium">ClusterGraphStore with multi-worker Redis PubSub & sub-15ms BFS path recovery</td>
                         </tr>
                         <tr>
-                            <td class="p-3 font-semibold text-white">Frontend Platform</td>
-                            <td class="p-3 text-rose-300/80">Generic React/HTML web dashboard</td>
-                            <td class="p-3 text-emerald-300 font-medium">Native Android Kotlin App built for field patrol units</td>
+                            <td class="p-3 font-semibold text-[#FFFCF2]">Frontend Architecture Mandate</td>
+                            <td class="p-3 text-rose-300">Generic React/HTML web dashboard</td>
+                            <td class="p-3 text-emerald-300 font-medium">Native Android Kotlin & Jetpack Compose app built for mobile PCR patrol units</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
         </section>
 
-        <!-- Evaluator Quick Links -->
-        <section class="mt-16 text-center space-y-4">
-            <h4 class="text-sm font-semibold uppercase tracking-wider text-slate-400">Essential Evaluator Documentation</h4>
+        <!-- Documentation & Verification Assets -->
+        <section class="text-center space-y-4 pt-4 border-t border-[#33312E]">
+            <div class="text-xs uppercase font-bold text-[#CCC5B9] tracking-wider">Official Documentation & Audit Dossiers</div>
             <div class="flex flex-wrap justify-center gap-3 text-xs">
-                <a href="https://github.com/harshada2576/SIH2026/blob/main/docs/SIH_MASTER_PITCH_AND_WINNING_DOSSIER.md" target="_blank" class="glass px-4 py-2 rounded-lg text-slate-200 hover:text-white hover:border-slate-600 transition">
-                    📄 Master Pitch Dossier
+                <a href="https://github.com/harshada2576/SIH2026/blob/main/docs/SIH_MASTER_PITCH_AND_WINNING_DOSSIER.md" target="_blank" 
+                   class="bg-[#403D39] hover:bg-[#4A4641] text-[#FFFCF2] px-4 py-2 rounded tactical-border transition">
+                    📄 Master Presentation Dossier
                 </a>
-                <a href="https://github.com/harshada2576/SIH2026/blob/main/docs/VALIDATION_PROTOCOL.md" target="_blank" class="glass px-4 py-2 rounded-lg text-slate-200 hover:text-white hover:border-slate-600 transition">
+                <a href="https://github.com/harshada2576/SIH2026/blob/main/docs/VALIDATION_PROTOCOL.md" target="_blank" 
+                   class="bg-[#403D39] hover:bg-[#4A4641] text-[#FFFCF2] px-4 py-2 rounded tactical-border transition">
                     🧪 Pre-Registered Validation Protocol
                 </a>
-                <a href="https://github.com/harshada2576/SIH2026/blob/main/docs/VALIDATION_AND_INTEGRATION.md" target="_blank" class="glass px-4 py-2 rounded-lg text-slate-200 hover:text-white hover:border-slate-600 transition">
-                    🏛️ Institutional Adapter Specs
+                <a href="https://github.com/harshada2576/SIH2026/blob/main/docs/VALIDATION_AND_INTEGRATION.md" target="_blank" 
+                   class="bg-[#403D39] hover:bg-[#4A4641] text-[#FFFCF2] px-4 py-2 rounded tactical-border transition">
+                    🏛️ Institutional Adapter Specifications
                 </a>
             </div>
         </section>
+
     </main>
 
     <!-- Footer -->
-    <footer class="border-t border-slate-800 bg-slate-950 py-8 text-center text-xs text-slate-500 mt-20">
+    <footer class="border-t border-[#33312E] bg-[#1d1c1a] py-6 text-center text-xs text-[#CCC5B9]/70 mt-16 space-y-1">
         <p>CyberShield — Smart India Hackathon (SIH 2026) | Problem Statement 26184</p>
-        <p class="mt-1">Ministry of Home Affairs • Indian Cyber Crime Coordination Centre (I4C), CIS Division</p>
+        <p>Ministry of Home Affairs • Indian Cyber Crime Coordination Centre (I4C), CIS Division</p>
     </footer>
 
-    <!-- Live Cloud Health Probe Script -->
+    <!-- Interactive Query & Health Script -->
     <script>
         lucide.createIcons();
 
-        async function checkBackendHealth() {
-            const endpoints = [
-                'https://sih-render.seucra.tech/terminals',
-                'https://cybershield-backend-g8fl.onrender.com/terminals',
-                'https://sih.seucra.tech/terminals'
-            ];
+        const CLOUD_ENDPOINTS = [
+            'https://sih-render.seucra.tech',
+            'https://cybershield-backend-g8fl.onrender.com',
+            'https://sih.seucra.tech'
+        ];
 
+        let activeBaseUrl = CLOUD_ENDPOINTS[0];
+
+        async function resolveWorkingCloudUrl() {
             const statusCard = document.getElementById('backend-status-card');
             const statusPulse = document.getElementById('status-pulse');
             const statusText = document.getElementById('status-text');
 
-            for (const url of endpoints) {
+            for (const base of CLOUD_ENDPOINTS) {
                 const startTime = performance.now();
                 try {
-                    const res = await fetch(url, { method: 'HEAD', mode: 'no-cors' });
-                    const latency = Math.round(performance.now() - startTime);
-                    statusPulse.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
-                    statusText.innerHTML = `🟢 Cloud Backend: Online (${latency}ms)`;
-                    statusCard.className = 'flex items-center space-x-2 bg-emerald-950/40 px-3 py-1.5 rounded-full border border-emerald-800/60 text-xs text-emerald-300';
-                    return;
+                    const res = await fetch(base + '/');
+                    if (res.ok) {
+                        const data = await res.json();
+                        const latency = Math.round(performance.now() - startTime);
+                        activeBaseUrl = base;
+                        document.getElementById('current-endpoint-display').innerText = base;
+                        statusPulse.className = 'w-2.5 h-2.5 rounded-full bg-tactical-green';
+                        statusText.innerHTML = `🟢 Core Online (${latency}ms)`;
+                        statusCard.className = 'flex items-center space-x-2 bg-[#2d3a2d] px-3 py-1.5 rounded border border-emerald-600/40 text-xs text-emerald-300';
+                        return;
+                    }
                 } catch (e) {
-                    // Try next endpoint
+                    // Try next fallback
                 }
             }
 
             statusPulse.className = 'w-2.5 h-2.5 rounded-full bg-amber-400';
-            statusText.innerText = '🟡 Cloud Core: Standby';
+            statusText.innerText = '🟡 Cloud Standby';
         }
 
-        checkBackendHealth();
-        setInterval(checkBackendHealth, 30000);
+        async function fetchEndpoint(path) {
+            const viewer = document.getElementById('json-viewer');
+            const status = document.getElementById('response-status');
+            const latencyDisp = document.getElementById('response-time');
+
+            // Highlight button
+            document.querySelectorAll('.endpoint-btn').forEach(b => {
+                b.className = 'endpoint-btn px-3 py-1.5 rounded bg-[#403D39] text-[#CCC5B9] hover:text-[#FFFCF2]';
+            });
+            event.target.className = 'endpoint-btn px-3 py-1.5 rounded bg-tactical-orange text-white font-semibold';
+
+            status.innerText = `FETCHING ${activeBaseUrl}${path}...`;
+            viewer.innerText = 'Loading operational telemetry...';
+
+            const startTime = performance.now();
+            try {
+                const res = await fetch(activeBaseUrl + path);
+                const latency = Math.round(performance.now() - startTime);
+                latencyDisp.innerText = `LATENCY: ${latency}ms`;
+                status.innerText = `STATUS: ${res.status} ${res.statusText}`;
+
+                if (res.ok) {
+                    const data = await res.json();
+                    viewer.innerText = JSON.stringify(data, null, 2);
+                } else {
+                    viewer.innerText = `// Server responded with error status ${res.status}\n// Endpoint: ${activeBaseUrl}${path}`;
+                }
+            } catch (err) {
+                const latency = Math.round(performance.now() - startTime);
+                latencyDisp.innerText = `LATENCY: ${latency}ms (Offline/CORS)`;
+                status.innerText = `STATUS: CONNECTION NOTICE`;
+                viewer.innerText = `// Direct CORS probe blocked by browser or host waking up.\n// To verify live in terminal:\ncurl -s ${activeBaseUrl}${path}`;
+            }
+        }
+
+        resolveWorkingCloudUrl();
+        setInterval(resolveWorkingCloudUrl, 30000);
     </script>
 </body>
 </html>

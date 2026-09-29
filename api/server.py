@@ -181,8 +181,16 @@ async def lifespan(app: FastAPI):
 
     await GLOBAL_EVENT_BUS.start()
 
-    discovery_service = DiscoveryService(port=port, service_name="CyberShield-Backend")
-    discovery_service.start()
+    import os
+    is_cloud = bool(os.environ.get("RENDER") or os.environ.get("PORT"))
+    if not is_cloud and os.environ.get("ENABLE_DISCOVERY", "true").lower() == "true":
+        try:
+            discovery_service = DiscoveryService(port=port, service_name="CyberShield-Backend")
+            discovery_service.start()
+        except Exception as e:
+            log.warning(f"Could not start local discovery service: {e}")
+    else:
+        log.info("[Cloud Mode] Running in cloud environment ($PORT/RENDER detected). Local UDP mDNS/LAN discovery disabled.")
 
     # Launch background Kafka live consumer thread
     import threading
@@ -217,6 +225,20 @@ app.add_middleware(
 
 app.include_router(validation_router)
 app.include_router(integration_router)
+
+
+@app.get("/")
+@app.head("/")
+def health_check_root():
+    return {
+        "status": "HEALTHY",
+        "service": "CyberShield SIH26184 Core Engine",
+        "version": "1.0.0",
+        "jurisdiction": "Ministry of Home Affairs / I4C CIS Division",
+        "cases_active": len(ENGINE.cases),
+        "terminals_registered": len(ENGINE.terminals),
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
