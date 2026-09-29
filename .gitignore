@@ -98,6 +98,8 @@ zookeeper-data/
 *.db-shm
 *.sqlite
 *.sqlite3
+data-generator/data/*.csv
+data/output/*.csv
 data/output/*.db
 data/output/*.db-wal
 data/output/*.db-shm
@@ -109,3 +111,4 @@ data/output/audit_keys/
 data/output/audit_keys_DEMO/
 data/output/merkle_audit/
 data/output/merkle_demo/
+

@@ -21,12 +21,40 @@ Implements:
 16. Multiple concurrent chains (Simultaneous overlapping fraud campaigns)
 """
 
+from collections import defaultdict
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import config
 from normal_traffic import make_transaction_id, _iso, _pareto_amount
+
+# Global lookup caches populated by inject_all_scenarios for high-speed sampling
+_TERMINALS_BY_DISTRICT: Dict[str, List[dict]] = defaultdict(list)
+_ACCOUNTS_BY_REGION: Dict[str, List[dict]] = defaultdict(list)
+
+
+def _sample_scenario_start_time(sim_start: datetime, rng: random.Random) -> datetime:
+    """
+    Sample a campaign start timestamp across the multi-year timeline (2024 to September 2026),
+    with realistic historical baseline dispersion (2024-2025) and escalating recent intensity (2026).
+    """
+    total_hours = getattr(config, "SIMULATION_DURATION_HOURS", 24072)
+    total_days = max(1, total_hours // 24)
+    
+    # 25% across 2024 (days 0-365), 35% across 2025 (days 366-730), 40% across 2026 (days 731-1002)
+    r = rng.random()
+    if r < 0.25:
+        day = rng.randint(0, min(365, total_days - 1))
+    elif r < 0.60:
+        day = rng.randint(366, min(730, total_days - 1))
+    else:
+        day = rng.randint(731, total_days - 1)
+        
+    hour = rng.randint(6, 22)  # Active fraud window
+    minute = rng.randint(0, 59)
+    second = rng.randint(0, 59)
+    return sim_start + timedelta(days=day, hours=hour, minutes=minute, seconds=second)
 
 
 def _fraud_amount(rng: random.Random) -> float:
@@ -78,7 +106,10 @@ def _apply_shared_kyc_identity(accounts: list[dict], shared_kyc: str) -> None:
 
 def _pick_cashout_terminal(cashout_account: dict, terminals: list[dict], rng: random.Random) -> dict:
     """Pick terminal in or near account's district, or fallback to pool."""
-    same_district = [t for t in terminals if t["district"] == cashout_account.get("account_region")]
+    reg = cashout_account.get("account_region")
+    if _TERMINALS_BY_DISTRICT and reg in _TERMINALS_BY_DISTRICT:
+        return rng.choice(_TERMINALS_BY_DISTRICT[reg])
+    same_district = [t for t in terminals if t["district"] == reg]
     pool = same_district if same_district else terminals
     return rng.choice(pool)
 
@@ -107,7 +138,7 @@ def inject_simple_mule(accounts: list[dict], terminals: list[dict], scenario_id:
     terminal = _pick_cashout_terminal(mule, terminals, rng)
     _record_terminal_history([mule], terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 20 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     amount = _fraud_amount(rng)
     channel = rng.choice(["UPI", "IMPS"])
 
@@ -145,7 +176,7 @@ def inject_layering(accounts: list[dict], terminals: list[dict], scenario_id: st
     terminal = _pick_cashout_terminal(final_account, terminals, rng)
     _record_terminal_history([final_account], terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(1800, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     amount = _fraud_amount(rng)
     channel = rng.choice(["UPI", "IMPS"])
 
@@ -198,7 +229,7 @@ def inject_fan_in(accounts: list[dict], terminals: list[dict], scenario_id: str,
     terminal = _pick_cashout_terminal(aggregator, terminals, rng)
     _record_terminal_history([aggregator], terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 20 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     window_secs = config.FAN_IN_WINDOW_MINUTES * 60
     channel = rng.choice(["UPI", "IMPS", "AEPS"])
 
@@ -243,7 +274,7 @@ def inject_fan_out(accounts: list[dict], terminals: list[dict], scenario_id: str
     terminal = _pick_cashout_terminal(final_target, terminals, rng)
     _record_terminal_history([final_target], terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 20 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     window_secs = config.FAN_OUT_WINDOW_MINUTES * 60
     channel = rng.choice(["UPI", "IMPS"])
 
@@ -287,7 +318,7 @@ def inject_fan_in_fan_out(accounts: list[dict], terminals: list[dict], scenario_
     terminal = _pick_cashout_terminal(targets[0], terminals, rng)
     _record_terminal_history(targets, terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(1800, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     txns = []
     chain_id = f"CHN-FIFO-{scenario_id}"
 
@@ -334,7 +365,7 @@ def inject_rapid_forwarding(accounts: list[dict], terminals: list[dict], scenari
     terminal = _pick_cashout_terminal(chain[-1], terminals, rng)
     _record_terminal_history([chain[-1]], terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 20 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     amount = _fraud_amount(rng)
     txns = []
     cur_time = t0
@@ -371,7 +402,7 @@ def inject_shared_device(accounts: list[dict], terminals: list[dict], scenario_i
     terminal = _pick_cashout_terminal(cluster[0], terminals, rng)
     _record_terminal_history(cluster, terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(1800, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     txns = []
     # All cluster accounts send funds to an outside target or among each other with same device
     for idx in range(len(cluster) - 1):
@@ -403,7 +434,7 @@ def inject_shared_kyc_cluster(accounts: list[dict], terminals: list[dict], scena
     terminal = _pick_cashout_terminal(cluster[0], terminals, rng)
     _record_terminal_history(cluster, terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(1800, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     txns = []
     # Funnel into the last mule
     for idx, acc in enumerate(cluster[:-1]):
@@ -435,13 +466,16 @@ def inject_geo_velocity(accounts: list[dict], terminals: list[dict], scenario_id
     
     # Pick 2 terminals in widely separated cities (e.g. Mumbai vs Delhi / BLR)
     t1 = rng.choice(terminals)
-    far_terminals = [t for t in terminals if t.get("district") != t1.get("district")]
-    t2 = rng.choice(far_terminals) if far_terminals else terminals[0]
+    t2 = rng.choice(terminals)
+    attempts = 0
+    while t2.get("district") == t1.get("district") and attempts < 10:
+        t2 = rng.choice(terminals)
+        attempts += 1
 
     _record_terminal_history([acc1], t1["terminal_id"])
     _record_terminal_history([acc1], t2["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     txns = []
 
     # Transaction 1 in City A
@@ -470,14 +504,16 @@ def inject_geo_velocity(accounts: list[dict], terminals: list[dict], scenario_id
 def inject_repeated_atm_targeting(accounts: list[dict], terminals: list[dict], scenario_id: str,
                                   sim_start: datetime, rng: random.Random) -> tuple[list[dict], dict]:
     mule = rng.choice(accounts)
-    target_partner = rng.choice([a for a in accounts if a["account_id"] != mule["account_id"]])
+    target_partner = rng.choice(accounts)
+    while target_partner["account_id"] == mule["account_id"]:
+        target_partner = rng.choice(accounts)
     mule["account_tier"] = "aggregator"
 
     involved = [mule["account_id"], target_partner["account_id"]]
     target_terminal = _pick_cashout_terminal(mule, terminals, rng)
     _record_terminal_history([mule], target_terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     txns = []
 
     # 4 consecutive transactions targeting the same terminal within short intervals
@@ -512,7 +548,7 @@ def inject_multi_victim_common_mule(accounts: list[dict], terminals: list[dict],
     terminal = _pick_cashout_terminal(common_mule, terminals, rng)
     _record_terminal_history([common_mule], terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(1800, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     txns = []
     for idx, v in enumerate(victims):
         ts = t0 + timedelta(minutes=idx * 12)
@@ -546,7 +582,7 @@ def inject_distributed_cashout(accounts: list[dict], terminals: list[dict], scen
         t_id = selected_terminals[idx % len(selected_terminals)]["terminal_id"]
         _record_terminal_history([m], t_id)
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     txns = []
     for idx, m in enumerate(mules):
         ts = t0 + timedelta(minutes=idx * 5)
@@ -573,13 +609,13 @@ def inject_dormant_activation(accounts: list[dict], terminals: list[dict], scena
     dormant_acc, feeder, cashout_acc = chosen[0], chosen[1], chosen[2]
     dormant_acc["account_tier"] = "mule_l1"
     dormant_acc["account_status"] = "dormant"
-    dormant_acc["account_age_days"] = rng.randint(250, 1200)
+    dormant_acc["account_age_days"] = rng.randint(400, 1800)
 
     involved = [a["account_id"] for a in chosen]
     terminal = _pick_cashout_terminal(cashout_acc, terminals, rng)
     _record_terminal_history([cashout_acc], terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     amount = round(rng.uniform(80000, 220000), 2)
     txns = []
 
@@ -617,7 +653,7 @@ def inject_probing_then_large(accounts: list[dict], terminals: list[dict], scena
     terminal = _pick_cashout_terminal(target, terminals, rng)
     _record_terminal_history([target], terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     txns = []
 
     # 3 small test probes (e.g. ₹10, ₹50, ₹100)
@@ -649,12 +685,12 @@ def inject_probing_then_large(accounts: list[dict], terminals: list[dict], scena
 def inject_cross_city_mule_network(accounts: list[dict], terminals: list[dict], scenario_id: str,
                                    sim_start: datetime, rng: random.Random) -> tuple[list[dict], dict]:
     # Select accounts from distinct regions if possible
-    regions = list(set(a["account_region"] for a in accounts))
+    regions = list(_ACCOUNTS_BY_REGION.keys()) if _ACCOUNTS_BY_REGION else list(set(a["account_region"] for a in accounts))
     if len(regions) >= 3:
         reg_samples = rng.sample(regions, 3)
-        acc1 = next(a for a in accounts if a["account_region"] == reg_samples[0])
-        acc2 = next(a for a in accounts if a["account_region"] == reg_samples[1])
-        acc3 = next(a for a in accounts if a["account_region"] == reg_samples[2])
+        acc1 = rng.choice(_ACCOUNTS_BY_REGION[reg_samples[0]])
+        acc2 = rng.choice(_ACCOUNTS_BY_REGION[reg_samples[1]])
+        acc3 = rng.choice(_ACCOUNTS_BY_REGION[reg_samples[2]])
         chain = [acc1, acc2, acc3]
     else:
         chain = rng.sample(accounts, 3)
@@ -667,7 +703,7 @@ def inject_cross_city_mule_network(accounts: list[dict], terminals: list[dict], 
     terminal = _pick_cashout_terminal(chain[-1], terminals, rng)
     _record_terminal_history([chain[-1]], terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     amount = _fraud_amount(rng)
     txns = []
 
@@ -710,7 +746,7 @@ def inject_concurrent_campaigns(accounts: list[dict], terminals: list[dict], sce
     terminal = _pick_cashout_terminal(chain1[-1], terminals, rng)
     _record_terminal_history([chain1[-1], chain2[-1]], terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 18 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     txns = []
 
     for chain_idx, chain in enumerate((chain1, chain2)):
@@ -742,7 +778,7 @@ def inject_triadic(accounts: list[dict], terminals: list[dict], scenario_id: str
     terminal = _pick_cashout_terminal(chain[0], terminals, rng)
     _record_terminal_history(chain, terminal["terminal_id"])
 
-    t0 = sim_start + timedelta(seconds=rng.uniform(3600, 20 * 3600))
+    t0 = _sample_scenario_start_time(sim_start, rng)
     amount = _fraud_amount(rng)
     txns = []
     t_cur = t0
@@ -768,6 +804,14 @@ def inject_triadic(accounts: list[dict], terminals: list[dict], scenario_id: str
 def inject_all_scenarios(accounts: list[dict], terminals: list[dict], sim_start: datetime,
                          rng: random.Random) -> tuple[list[dict], list[dict]]:
     """Inject all 16 configured fraud scenario archetypes across accounts and terminals."""
+    global _TERMINALS_BY_DISTRICT, _ACCOUNTS_BY_REGION
+    _TERMINALS_BY_DISTRICT = defaultdict(list)
+    for t in terminals:
+        _TERMINALS_BY_DISTRICT[t["district"]].append(t)
+    _ACCOUNTS_BY_REGION = defaultdict(list)
+    for a in accounts:
+        _ACCOUNTS_BY_REGION[a["account_region"]].append(a)
+
     fraud_transactions = []
     scenarios_meta = []
     idx = 1

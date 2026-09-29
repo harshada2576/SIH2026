@@ -32,32 +32,67 @@ def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# Pre-calculated multi-year weights cache
+_CACHED_DAY_WEIGHTS: Optional[List[float]] = None
+_CACHED_TOTAL_DAYS: int = 0
+
+# 24-hour activity density weight distribution (Indian banking diurnal pattern)
+HOURLY_WEIGHTS = [
+    0.008, 0.005, 0.004, 0.004, 0.006, 0.012,  # 00:00 - 05:59 (Deep Night lull)
+    0.025, 0.045, 0.065, 0.080, 0.085, 0.075,  # 06:00 - 11:59 (Morning surge & office start)
+    0.070, 0.065, 0.060, 0.065, 0.075, 0.085,  # 12:00 - 17:59 (Lunch & afternoon retail)
+    0.090, 0.080, 0.060, 0.035, 0.020, 0.013,  # 18:00 - 23:59 (Evening peak & night wind-down)
+]
+
+
+def _get_day_weights(start: datetime, total_days: int) -> List[float]:
+    """
+    Calculate realistic multi-year day weights capturing:
+    1. Digital payment macro growth across 2024-2026 (~1.55x growth drift)
+    2. Day-of-week seasonality (retail surges on weekends, business on Mondays)
+    3. Day-of-month cycles (Salary disbursements on 1st-5th, month-end billing on 28th-31st)
+    4. Indian festive & seasonal peaks (Diwali / Durga Puja in Oct/Nov, March financial year-end)
+    """
+    global _CACHED_DAY_WEIGHTS, _CACHED_TOTAL_DAYS
+    if _CACHED_DAY_WEIGHTS is not None and _CACHED_TOTAL_DAYS == total_days:
+        return _CACHED_DAY_WEIGHTS
+
+    weights = []
+    for day_idx in range(total_days):
+        dt = start + timedelta(days=day_idx)
+        # 1. Macro adoption growth
+        macro = 1.0 + 0.55 * (day_idx / max(1, total_days))
+        # 2. Day of week
+        dow = dt.weekday()
+        dow_f = 1.16 if dow in (5, 6) else (1.10 if dow == 0 else 1.0)
+        # 3. Day of month
+        dom = dt.day
+        dom_f = 1.32 if 1 <= dom <= 5 else (1.20 if dom >= 28 else 1.0)
+        # 4. Indian Festive / Annual Cycle
+        month = dt.month
+        festive = 1.48 if month in (10, 11) else (1.22 if month in (3, 12) else 1.0)
+        weights.append(macro * dow_f * dom_f * festive)
+
+    _CACHED_DAY_WEIGHTS = weights
+    _CACHED_TOTAL_DAYS = total_days
+    return weights
+
+
 def _sample_diurnal_timestamp(start: datetime, duration_hours: int, rng: random.Random) -> datetime:
     """
-    Sample a realistic timestamp according to the diurnal activity profile of Indian banking:
-    Peak daytime hours (10:00-13:00 and 17:00-22:00), lunch and evening surges, low night lull.
+    Sample a realistic timestamp according to multi-year natural timeline:
+    Multi-year macroeconomic growth, weekly rhythms, salary/festive bursts, and 24h diurnal curve.
     """
-    # 24-hour activity density weight distribution
-    HOURLY_WEIGHTS = [
-        0.008, 0.005, 0.004, 0.004, 0.006, 0.012,  # 00:00 - 05:59 (Deep Night)
-        0.025, 0.045, 0.065, 0.080, 0.085, 0.075,  # 06:00 - 11:59 (Morning surge & office start)
-        0.070, 0.065, 0.060, 0.065, 0.075, 0.085,  # 12:00 - 17:59 (Lunch & afternoon retail)
-        0.090, 0.080, 0.060, 0.035, 0.020, 0.013,  # 18:00 - 23:59 (Evening peak & night wind-down)
-    ]
-    
     total_days = max(1, math.ceil(duration_hours / 24))
-    day_idx = rng.randint(0, total_days - 1)
+    weights = _get_day_weights(start, total_days)
     
+    day_idx = rng.choices(range(total_days), weights=weights, k=1)[0]
     hour = rng.choices(range(24), weights=HOURLY_WEIGHTS, k=1)[0]
     minute = rng.randint(0, 59)
     second = rng.randint(0, 59)
     microsecond = rng.randint(0, 999999)
     
-    total_offset_seconds = day_idx * 86400 + hour * 3600 + minute * 60 + second + microsecond / 1e6
-    if total_offset_seconds > duration_hours * 3600:
-        total_offset_seconds = rng.uniform(0, duration_hours * 3600)
-        
-    return start + timedelta(seconds=total_offset_seconds)
+    return start + timedelta(days=day_idx, hours=hour, minutes=minute, seconds=second, microseconds=microsecond)
 
 
 def make_device_fingerprint(rng: random.Random) -> str:
@@ -145,14 +180,17 @@ def generate_accounts(num_accounts: int, rng: random.Random) -> list[dict]:
         else:
             device = make_device_fingerprint(rng)
 
-        # Realistic account age: fresh (1-14 days), established (15-365 days), veteran (>365 days)
+        # Realistic multi-year account age distribution:
+        # - 20% veteran accounts (> 1000 days, established before 2024)
+        # - 50% established accounts (270 to 1000 days, opened during 2024-2025)
+        # - 30% newer accounts (1 to 270 days, opened in 2026)
         age_tier = rng.random()
-        if age_tier < 0.10:
-            age_days = rng.randint(1, 14)
-        elif age_tier < 0.65:
-            age_days = rng.randint(15, 365)
+        if age_tier < 0.30:
+            age_days = rng.randint(1, 270)
+        elif age_tier < 0.80:
+            age_days = rng.randint(271, 1000)
         else:
-            age_days = rng.randint(366, 2800)
+            age_days = rng.randint(1001, 2800)
 
         accounts.append({
             "account_id": account_id,
@@ -178,39 +216,41 @@ def _build_social_and_corporate_graph(accounts: list[dict], rng: random.Random) 
     """
     Connects accounts into a realistic social small-world network and corporate employer-employee clusters.
     """
-    by_region: Dict[str, List[dict]] = defaultdict(list)
+    by_region_ids: Dict[str, List[str]] = defaultdict(list)
     retail_accounts: List[dict] = []
+    retail_ids: List[str] = []
     corporate_accounts: List[dict] = []
     
     for a in accounts:
-        by_region[a["account_region"]].append(a)
+        by_region_ids[a["account_region"]].append(a["account_id"])
         if a["account_role"] == "retail_consumer":
             retail_accounts.append(a)
+            retail_ids.append(a["account_id"])
         elif a["account_role"] == "corporate_employer":
             corporate_accounts.append(a)
 
     # A. Build Local Social Circles for Retail Consumers (3 to 10 contacts per person)
     for a in retail_accounts:
-        region_peers = by_region.get(a["account_region"], retail_accounts)
+        aid = a["account_id"]
+        region_peers = by_region_ids.get(a["account_region"], retail_ids)
         circle_size = rng.randint(3, 10)
         
         # 70% same district friends/family, 30% cross-district
         local_sample_size = min(len(region_peers) - 1, int(circle_size * 0.70))
         remote_sample_size = circle_size - local_sample_size
         
-        peers = [p["account_id"] for p in rng.sample(region_peers, max(1, local_sample_size)) if p["account_id"] != a["account_id"]]
-        if remote_sample_size > 0 and len(retail_accounts) > circle_size:
-            remote_peers = [p["account_id"] for p in rng.sample(retail_accounts, remote_sample_size) if p["account_id"] != a["account_id"]]
+        peers = [p for p in rng.sample(region_peers, max(1, local_sample_size)) if p != aid]
+        if remote_sample_size > 0 and len(retail_ids) > circle_size:
+            remote_peers = [p for p in rng.sample(retail_ids, remote_sample_size) if p != aid]
             peers.extend(remote_peers)
             
         a["social_circle"] = list(set(peers))
 
     # B. Assign Corporate Employers their Employee Pools (15 to 60 employees each)
-    if corporate_accounts and retail_accounts:
-        all_retail_ids = [a["account_id"] for a in retail_accounts]
+    if corporate_accounts and retail_ids:
         for corp in corporate_accounts:
-            pool_size = min(len(all_retail_ids), rng.randint(15, 60))
-            corp["employee_pool"] = rng.sample(all_retail_ids, pool_size)
+            pool_size = min(len(retail_ids), rng.randint(15, 60))
+            corp["employee_pool"] = rng.sample(retail_ids, pool_size)
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +354,7 @@ def generate_normal_transactions(
     duration_hours = config.SIMULATION_DURATION_HOURS
     transactions: List[dict] = []
 
+    all_account_ids = [a["account_id"] for a in accounts]
     num_bursts = int(num_transactions * 0.02)
     num_standard = num_transactions - num_bursts
 
@@ -328,9 +369,9 @@ def generate_normal_transactions(
             if s_acc.get("social_circle"):
                 target_id = rng.choice(s_acc["social_circle"])
             else:
-                target_id = rng.choice(accounts)["account_id"]
+                target_id = rng.choice(all_account_ids)
             if target_id == source_id:
-                target_id = rng.choice(accounts)["account_id"]
+                target_id = rng.choice(all_account_ids)
             amount = _pareto_amount(50, 18000, 1.8, rng)
             channel = rng.choice(["UPI", "UPI", "UPI", "IMPS"])
 
@@ -342,7 +383,7 @@ def generate_normal_transactions(
             t_acc = rng.choice(local_merchants) if local_merchants else rng.choice(accounts)
             target_id = t_acc["account_id"]
             if target_id == source_id:
-                target_id = rng.choice(accounts)["account_id"]
+                target_id = rng.choice(all_account_ids)
             amount = round(rng.uniform(25, 4200), 2)
             channel = rng.choice(["UPI", "UPI", "UPI", "AEPS", "IMPS"])
 
@@ -364,12 +405,15 @@ def generate_normal_transactions(
             else:
                 target_id = rng.choice(retail_consumers)["account_id"]
             if target_id == source_id:
-                target_id = rng.choice(accounts)["account_id"]
+                target_id = rng.choice(all_account_ids)
             amount = round(rng.uniform(28000, 240000), 2)
             channel = rng.choice(["NEFT", "NEFT", "IMPS", "RTGS"])
-            # Payrolls cluster in morning hours (09:00 - 13:00)
-            salary_day = rng.randint(0, max(1, duration_hours // 24) - 1)
-            ts = start + timedelta(days=salary_day, hours=rng.uniform(9.0, 13.5), minutes=rng.uniform(0, 59))
+            # Payrolls cluster on salary mornings (1st-5th of each month, 09:00 - 13:00)
+            total_months = max(1, duration_hours // (24 * 30))
+            m_idx = rng.randint(0, total_months - 1)
+            dom = rng.randint(1, 5)
+            salary_day_offset = min(max(1, duration_hours // 24) - 1, m_idx * 30 + dom)
+            ts = start + timedelta(days=salary_day_offset, hours=rng.uniform(9.0, 13.0), minutes=rng.uniform(0, 59))
 
         elif r < 0.81:
             # 5. Utility & Telecom Bills (BESCOM, Jio, Airtel, Water)
@@ -397,7 +441,7 @@ def generate_normal_transactions(
             source_id = s_acc["account_id"]
             target_id = t_acc["account_id"]
             if target_id == source_id:
-                target_id = rng.choice(accounts)["account_id"]
+                target_id = rng.choice(all_account_ids)
             amount = round(rng.uniform(45000, 650000), 2)
             channel = rng.choice(["RTGS", "RTGS", "NEFT"])
 
@@ -444,7 +488,8 @@ def generate_normal_transactions(
         s_acc = rng.choice(retail_consumers)
         source_id = s_acc["account_id"]
         burst_start = _sample_diurnal_timestamp(start, duration_hours - 3, rng)
-        burst_targets = rng.sample([a["account_id"] for a in accounts if a["account_id"] != source_id], min(4, len(accounts) - 1))
+        sampled_targets = rng.sample(all_account_ids, min(6, len(all_account_ids)))
+        burst_targets = [tid for tid in sampled_targets if tid != source_id][:4]
 
         for idx, t_id in enumerate(burst_targets):
             offset_m = idx * rng.uniform(3, 20)

@@ -15,32 +15,32 @@ from typing import Dict, List, Tuple
 RANDOM_SEED = 42
 
 # ---------------------------------------------------------------------------
-# Dataset scale defaults (10x expansion for production realism)
+# Dataset scale defaults (20x expansion for production realism: > 1 Crore records)
 # ---------------------------------------------------------------------------
-NUM_ACCOUNTS = 25000
-NUM_NORMAL_TRANSACTIONS = 235000
-NUM_TERMINALS = 2500
+NUM_ACCOUNTS = 500000
+NUM_NORMAL_TRANSACTIONS = 10000000
+NUM_TERMINALS = 50000
 
-# Fraud scenario injection frequencies (~700+ campaign instances)
-NUM_SIMPLE_MULE_SCENARIOS = 50
-NUM_LAYERING_SCENARIOS = 60
-NUM_FAN_IN_SCENARIOS = 50
-NUM_FAN_OUT_SCENARIOS = 50
-NUM_FAN_IN_FAN_OUT_SCENARIOS = 40
-NUM_RAPID_FORWARDING_SCENARIOS = 50
-NUM_SHARED_DEVICE_SCENARIOS = 40
-NUM_SHARED_KYC_SCENARIOS = 40
-NUM_GEO_VELOCITY_SCENARIOS = 40
-NUM_REPEATED_ATM_SCENARIOS = 40
-NUM_MULTI_VICTIM_SCENARIOS = 40
-NUM_DISTRIBUTED_CASHOUT_SCENARIOS = 40
-NUM_DORMANT_ACTIVATION_SCENARIOS = 40
-NUM_PROBING_THEN_LARGE_SCENARIOS = 40
-NUM_CROSS_CITY_MULE_SCENARIOS = 50
-NUM_CONCURRENT_CAMPAIGN_SCENARIOS = 30
+# Fraud scenario injection frequencies (~14,000+ campaign instances across 16 archetypes)
+NUM_SIMPLE_MULE_SCENARIOS = 1000
+NUM_LAYERING_SCENARIOS = 1200
+NUM_FAN_IN_SCENARIOS = 1000
+NUM_FAN_OUT_SCENARIOS = 1000
+NUM_FAN_IN_FAN_OUT_SCENARIOS = 800
+NUM_RAPID_FORWARDING_SCENARIOS = 1000
+NUM_SHARED_DEVICE_SCENARIOS = 800
+NUM_SHARED_KYC_SCENARIOS = 800
+NUM_GEO_VELOCITY_SCENARIOS = 800
+NUM_REPEATED_ATM_SCENARIOS = 800
+NUM_MULTI_VICTIM_SCENARIOS = 800
+NUM_DISTRIBUTED_CASHOUT_SCENARIOS = 800
+NUM_DORMANT_ACTIVATION_SCENARIOS = 800
+NUM_PROBING_THEN_LARGE_SCENARIOS = 800
+NUM_CROSS_CITY_MULE_SCENARIOS = 1000
+NUM_CONCURRENT_CAMPAIGN_SCENARIOS = 600
 
 # Legacy alias
-NUM_TRIADIC_SCENARIOS = 20
+NUM_TRIADIC_SCENARIOS = 400
 
 # ---------------------------------------------------------------------------
 # Pattern shape parameters
@@ -82,10 +82,10 @@ NORMAL_AMOUNT_MAX = 150000
 NORMAL_AMOUNT_PARETO_SHAPE = 1.75
 
 # ---------------------------------------------------------------------------
-# Timestamps
+# Timestamps (Multi-Year Historical Timeline: Jan 1, 2024 to Sept 29, 2026 — ~1,003 Days)
 # ---------------------------------------------------------------------------
-SIMULATION_START = "2026-09-01T00:00:00Z"
-SIMULATION_DURATION_HOURS = 72
+SIMULATION_START = "2024-01-01T00:00:00Z"
+SIMULATION_DURATION_HOURS = 24072  # 1,003 days * 24 hours (multi-year natural distribution)
 
 # ---------------------------------------------------------------------------
 # Account tiers, status

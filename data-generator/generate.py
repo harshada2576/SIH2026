@@ -128,7 +128,7 @@ def write_csvs(accounts, terminals, transactions, out_dir, shuffle_rows, rng):
         "historical_terminal_ids", "primary_device_fingerprint", "account_region",
         "kyc_identity_id",
     ]
-    with open(os.path.join(out_dir, "accounts.csv"), "w", newline="", encoding="utf-8") as f:
+    with open(os.path.join(out_dir, "accounts.csv"), "w", newline="", encoding="utf-8", buffering=8*1024*1024) as f:
         writer = csv.DictWriter(f, fieldnames=acc_fields)
         writer.writeheader()
         for a in accounts:
@@ -143,7 +143,7 @@ def write_csvs(accounts, terminals, transactions, out_dir, shuffle_rows, rng):
                 "kyc_identity_id": a["kyc_identity_id"],
             })
 
-    with open(os.path.join(out_dir, "terminals.csv"), "w", newline="", encoding="utf-8") as f:
+    with open(os.path.join(out_dir, "terminals.csv"), "w", newline="", encoding="utf-8", buffering=8*1024*1024) as f:
         writer = csv.DictWriter(f, fieldnames=[
             "terminal_id", "terminal_type", "latitude", "longitude", "district", "pincode", "status",
         ])
@@ -159,14 +159,14 @@ def write_csvs(accounts, terminals, transactions, out_dir, shuffle_rows, rng):
                 "status": t["status"],
             })
 
-    with open(os.path.join(out_dir, "transactions.csv"), "w", newline="", encoding="utf-8") as f:
+    with open(os.path.join(out_dir, "transactions.csv"), "w", newline="", encoding="utf-8", buffering=16*1024*1024) as f:
         fieldnames = config.KAFKA_EVENT_FIELDS + ["balance_before", "balance_after"]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for t in rows:
             writer.writerow({k: t[k] for k in fieldnames})
 
-    with open(os.path.join(out_dir, "ground_truth.csv"), "w", newline="", encoding="utf-8") as f:
+    with open(os.path.join(out_dir, "ground_truth.csv"), "w", newline="", encoding="utf-8", buffering=16*1024*1024) as f:
         fieldnames = [
             "scenario_id", "transaction_id", "pattern_type", "is_fraud",
             "involved_account_ids", "expected_cashout_terminal_id",
@@ -231,7 +231,7 @@ def main():
     args = parse_args()
     rng = random.Random(args.seed)
 
-    print(f"Generating expanded 10x dataset: {args.accounts:,} accounts, {args.terminals:,} terminals, "
+    print(f"Generating expanded 20x dataset (> 1 Crore): {args.accounts:,} accounts, {args.terminals:,} terminals, "
           f"{args.normal_transactions:,} normal transactions + 16 fraud scenario archetypes "
           f"(seed={args.seed})")
 
@@ -276,7 +276,7 @@ def main():
     # 8. Update shared/terminals.json
     update_shared_terminals_json(terminals)
 
-    print("\n✓ 10x Dataset Generation Complete!")
+    print("\n✓ > 1 Crore Dataset Generation Complete!")
 
 
 if __name__ == "__main__":
