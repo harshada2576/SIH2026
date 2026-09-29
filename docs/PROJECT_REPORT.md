@@ -119,6 +119,7 @@ flowchart TD
 | Layer | Environment | URL / Endpoint | Verification |
 | :--- | :--- | :--- | :--- |
 | **Evaluator Portal** | GitHub Pages (Actions) | [https://harshada2576.github.io/SIH2026/](https://harshada2576.github.io/SIH2026/) | Interactive API explorer & live status |
+| **Virtual Android (Browser)** | Appetize.io (Pixel 7) | [https://appetize.io/app/b_yz6iksoap3nqfdmvimike7agly](https://appetize.io/app/b_yz6iksoap3nqfdmvimike7agly) | Interactive virtual device streaming in Chrome/Safari |
 | **Cloud Production API** | Render / Custom CNAME | [https://cybershield-backend-g8fl.onrender.com](https://cybershield-backend-g8fl.onrender.com) / [https://sih-render.seucra.tech](https://sih-render.seucra.tech) | Root & Health 200 OK telemetry |
 | **Signed Release APK** | GitHub Releases (`v0.0.1`) | [https://github.com/harshada2576/SIH2026/releases/tag/v0.0.1](https://github.com/harshada2576/SIH2026/releases/tag/v0.0.1) | APK Signature Scheme v2 (I4C Keystore) |
 

@@ -184,6 +184,7 @@ $$\text{Verify}(\text{PK}_{\text{I4C}}, R_{\text{block}}, \text{SiblingPath}) ==
 * **Zero-Trust Security:** HMAC-SHA256 signed API requests, anti-replay sliding timestamp windows, and bounded nonces.
 * **Live Evaluator & Cloud Deployment:**
   - Evaluator Portal: `https://harshada2576.github.io/SIH2026/` (GitHub Pages via GitHub Actions).
+  - In-Browser Virtual Android (Pixel 7): `https://appetize.io/app/b_yz6iksoap3nqfdmvimike7agly` (No installation needed for Mac/iPhone judges).
   - Cloud Production Backend: `https://sih-render.seucra.tech/` / `https://cybershield-backend-g8fl.onrender.com`.
   - Signed Release Binary: `https://github.com/harshada2576/SIH2026/releases/tag/v0.0.1`.
 * **Institutional Roadmap:**
