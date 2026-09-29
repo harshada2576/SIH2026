@@ -46,7 +46,8 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def _anchor_point(graph: GraphStore, account_id: str,
-                  terminals: List[TerminalNode]) -> Optional[Tuple[float, float]]:
+                  terminals: List[TerminalNode],
+                  as_of: Optional[datetime] = None) -> Optional[Tuple[float, float]]:
     """Preferred "where is this account operating" point, in priority order:
     1. centroid of its historical terminals, 2. centroid of its district's
     terminals, 3. centroid of all terminals (used when nothing else is known)."""
@@ -58,7 +59,7 @@ def _anchor_point(graph: GraphStore, account_id: str,
         return (sum(c[0] for c in coords) / len(coords),
                 sum(c[1] for c in coords) / len(coords))
 
-    hist = [by_id[t] for t in graph.historical_terminal_ids(account_id) if t in by_id]
+    hist = [by_id[t] for t in graph.historical_terminal_ids(account_id, as_of=as_of) if t in by_id]
     if hist:
         return centroid([(t.latitude, t.longitude) for t in hist])
 
@@ -86,6 +87,7 @@ def rank_terminals(
     account_id: str,
     terminals: List[TerminalNode],
     window_start: Optional[datetime] = None,
+    as_of: Optional[datetime] = None,
 ) -> List[TerminalScore]:
     """Rank candidate cash-out terminals for `account_id` — highest priority first.
 
@@ -95,13 +97,13 @@ def rank_terminals(
     if not terminals:
         return []
     window_start = window_start or utcnow()
-    anchor = _anchor_point(graph, account_id, terminals)
+    anchor = _anchor_point(graph, account_id, terminals, as_of=as_of)
 
-    freq: Counter = network_terminal_frequency(graph, account_id, degrees=1)
-    members = {account_id} | graph.get_neighborhood(account_id, degrees=1)
+    freq: Counter = network_terminal_frequency(graph, account_id, degrees=1, as_of=as_of)
+    members = {account_id} | graph.get_neighborhood(account_id, degrees=1, as_of=as_of)
     hist_members: Counter = Counter()
     for m in members:
-        for t in set(graph.historical_terminal_ids(m)):
+        for t in set(graph.historical_terminal_ids(m, as_of=as_of)):
             hist_members[t] += 1
 
     max_freq = max(freq.values()) if freq else 0

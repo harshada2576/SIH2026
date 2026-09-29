@@ -26,6 +26,8 @@ def parse_args():
     p.add_argument("--accounts", type=int, default=config.NUM_ACCOUNTS)
     p.add_argument("--normal-transactions", type=int, default=config.NUM_NORMAL_TRANSACTIONS)
     p.add_argument("--terminals", type=int, default=config.NUM_TERMINALS)
+    p.add_argument("--validation-scenarios", type=int, default=0,
+                    help="Number of validation scenarios across EASY/MEDIUM/HARD difficulty tiers")
     p.add_argument("--seed", type=int, default=config.RANDOM_SEED,
                     help="Random seed for reproducibility (omit for a fresh random dataset)")
     p.add_argument("--out-dir", type=str, default=config.DATA_DIR)
@@ -171,7 +173,7 @@ def write_csvs(accounts, terminals, transactions, out_dir, shuffle_rows, rng):
         fieldnames = [
             "scenario_id", "transaction_id", "pattern_type", "is_fraud",
             "involved_account_ids", "expected_cashout_terminal_id",
-            "campaign_id", "root_transaction_id", "chain_id", "hop_depth",
+            "campaign_id", "root_transaction_id", "chain_id", "hop_depth", "difficulty_tier",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -187,6 +189,7 @@ def write_csvs(accounts, terminals, transactions, out_dir, shuffle_rows, rng):
                 "root_transaction_id": t.get("_root_transaction_id", t["transaction_id"]),
                 "chain_id": t.get("_chain_id", ""),
                 "hop_depth": t.get("_hop_depth", 1),
+                "difficulty_tier": t.get("_difficulty_tier", "EASY"),
             })
 
 

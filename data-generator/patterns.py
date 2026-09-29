@@ -76,16 +76,35 @@ def _apply_shared_kyc_identity(accounts: list[dict], shared_kyc: str) -> None:
         acc["kyc_identity_id"] = shared_kyc
 
 
-def _pick_cashout_terminal(cashout_account: dict, terminals: list[dict], rng: random.Random) -> dict:
-    """Pick terminal in or near account's district, or fallback to pool."""
-    same_district = [t for t in terminals if t["district"] == cashout_account.get("account_region")]
-    pool = same_district if same_district else terminals
-    return rng.choice(pool)
+def _pick_cashout_terminal(cashout_account: dict, terminals: list[dict], rng: random.Random, difficulty_tier: str = "EASY") -> dict:
+    """Pick terminal based on difficulty tier:
+    EASY: Same district / region, recorded in account historical terminal list.
+    MEDIUM: Same district / near centroid, NOT pre-recorded in history.
+    HARD: Different district / city, NOT pre-recorded in history.
+    """
+    same_district = [t for t in terminals if t.get("district") == cashout_account.get("account_region")]
+    diff_district = [t for t in terminals if t.get("district") != cashout_account.get("account_region")]
+
+    if difficulty_tier == "EASY":
+        pool = same_district if same_district else terminals
+        chosen = rng.choice(pool)
+        _record_terminal_history([cashout_account], chosen["terminal_id"])
+        return chosen
+    elif difficulty_tier == "MEDIUM":
+        pool = same_district if same_district else terminals
+        unseen = [t for t in pool if t["terminal_id"] not in cashout_account.get("historical_terminal_ids", [])]
+        return rng.choice(unseen) if unseen else rng.choice(pool)
+    else:  # HARD
+        pool = diff_district if diff_district else terminals
+        unseen = [t for t in pool if t["terminal_id"] not in cashout_account.get("historical_terminal_ids", [])]
+        return rng.choice(unseen) if unseen else rng.choice(pool)
 
 
 def _record_terminal_history(accounts: list[dict], terminal_id: str) -> None:
     """Record historical terminal affinity."""
     for acc in accounts:
+        if "historical_terminal_ids" not in acc:
+            acc["historical_terminal_ids"] = []
         if terminal_id not in acc["historical_terminal_ids"]:
             acc["historical_terminal_ids"].append(terminal_id)
 
