@@ -275,6 +275,7 @@ async def websocket_endpoint(websocket: WebSocket):
 # REST Endpoints for CyberShield Native Android App
 # ─────────────────────────────────────────────────────────────────────────────
 @app.get("/health")
+@app.head("/health")
 async def health():
     return {
         "ok": True,
@@ -438,6 +439,7 @@ async def get_case_notifications(case_id: str):
 
 
 @app.get("/terminals")
+@app.head("/terminals")
 async def list_terminals():
     return {"terminals": ENGINE.terminal_markers()}
 
